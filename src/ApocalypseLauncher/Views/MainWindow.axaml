@@ -54,46 +54,98 @@
 
                 <!-- Экран входа -->
                 <Border Classes="panel" IsVisible="{Binding !IsLoggedIn}" MaxWidth="450">
-                    <StackPanel Spacing="25" Margin="20">
-                        <TextBlock Text="SRP-RP" FontSize="48" FontWeight="Bold" Foreground="#ff4d5d" HorizontalAlignment="Center" Margin="0,0,0,10"/>
-                        <TextBlock Text="POST-APOCALYPSE LAUNCHER" FontSize="14" Foreground="#ff9264" HorizontalAlignment="Center" LetterSpacing="2" Margin="0,0,0,20"/>
+                    <Grid>
+                        <StackPanel Spacing="25" Margin="20" IsVisible="{Binding !IsResettingPassword}">
+                            <TextBlock Text="SRP-RP" FontSize="48" FontWeight="Bold" Foreground="#ff4d5d" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                            <TextBlock Text="POST-APOCALYPSE LAUNCHER" FontSize="14" Foreground="#ff9264" HorizontalAlignment="Center" LetterSpacing="2" Margin="0,0,0,20"/>
 
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="ИМЯ ИГРОКА" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
-                            <TextBox Text="{Binding Username}" Watermark="Введите ваше имя" Height="45" FontSize="15"/>
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="ИМЯ ИГРОКА" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                                <TextBox Text="{Binding Username}" Watermark="Введите ваше имя" Height="45" FontSize="15"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="10" IsVisible="{Binding IsRegistering}">
+                                <TextBlock Text="EMAIL" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                                <TextBox Text="{Binding Email}" Watermark="Введите email" Height="45" FontSize="15"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="ПАРОЛЬ" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                                <TextBox Text="{Binding Password}" Watermark="Введите пароль" PasswordChar="●" Height="45" FontSize="15"/>
+                            </StackPanel>
+
+                            <!-- Сообщение об ошибке/статусе -->
+                            <Border Background="#1a0d0d" BorderBrush="#ff4d5d" BorderThickness="1" Padding="15" CornerRadius="5"
+                                    IsVisible="{Binding HasLoginError}" Margin="0,5,0,0">
+                                <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#ff4d5d" FontSize="13" TextWrapping="Wrap" TextAlignment="Center"/>
+                            </Border>
+
+                            <CheckBox IsChecked="{Binding IsFullscreen}" Content="Полноэкранный режим" Margin="0,5,0,0"/>
+
+                            <Button Content="ВОЙТИ" Command="{Binding LoginCommand}" IsVisible="{Binding !IsRegistering}" HorizontalAlignment="Stretch" Classes="launch" Height="55" FontSize="18" Margin="0,10,0,0"/>
+                            <Button Content="РЕГИСТРАЦИЯ" Command="{Binding RegisterCommand}" IsVisible="{Binding IsRegistering}" HorizontalAlignment="Stretch" Classes="launch" Height="55" FontSize="18" Margin="0,10,0,0"/>
+
+                            <Button Content="Нет аккаунта? Регистрация" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding !IsRegistering}"
+                                    HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
+                            <Button Content="Уже есть аккаунт? Войти" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding IsRegistering}"
+                                    HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
+
+                            <Button Content="Забыли пароль?" Command="{Binding ResetPasswordCommand}" IsVisible="{Binding !IsRegistering}"
+                                    HorizontalAlignment="Center" Background="Transparent" Foreground="#ff9264" FontSize="11" Margin="0,5,0,0"/>
+
+                            <TextBlock Text="ЗАЩИЩЕННАЯ АВТОРИЗАЦИЯ" FontSize="10" Foreground="#9fb0c3" HorizontalAlignment="Center" LetterSpacing="1" Margin="0,10,0,0"/>
                         </StackPanel>
 
-                        <StackPanel Spacing="10" IsVisible="{Binding IsRegistering}">
-                            <TextBlock Text="EMAIL" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
-                            <TextBox Text="{Binding Email}" Watermark="Введите email" Height="45" FontSize="15"/>
+                        <!-- Экран сброса пароля -->
+                        <StackPanel Spacing="25" Margin="20" IsVisible="{Binding IsResettingPassword}">
+                        <TextBlock Text="СБРОС ПАРОЛЯ" FontSize="32" FontWeight="Bold" Foreground="#ff4d5d" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                        <TextBlock Text="Восстановление доступа" FontSize="13" Foreground="#ff9264" HorizontalAlignment="Center" Margin="0,0,0,20"/>
+
+                        <!-- Шаг 1: Ввод email -->
+                        <StackPanel Spacing="15" IsVisible="{Binding !ResetCodeSent}">
+                            <TextBlock Text="Введите email вашего аккаунта" FontSize="13" Foreground="#9fb0c3" TextWrapping="Wrap" TextAlignment="Center"/>
+
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="EMAIL" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                                <TextBox Text="{Binding Email}" Watermark="Введите email" Height="45" FontSize="15"/>
+                            </StackPanel>
+
+                            <Button Content="ОТПРАВИТЬ КОД" Command="{Binding SendResetCodeCommand}" HorizontalAlignment="Stretch" Classes="launch" Height="50" FontSize="16" Margin="0,10,0,0"/>
                         </StackPanel>
 
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="ПАРОЛЬ" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
-                            <TextBox Text="{Binding Password}" Watermark="Введите пароль" PasswordChar="●" Height="45" FontSize="15"/>
+                        <!-- Шаг 2: Ввод кода и нового пароля -->
+                        <StackPanel Spacing="15" IsVisible="{Binding ResetCodeSent}">
+                            <Border Background="#0d1420" BorderBrush="#53dc96" BorderThickness="1" Padding="15" CornerRadius="5">
+                                <TextBlock Text="Код отправлен на вашу почту! Проверьте email (в том числе папку Спам)."
+                                           Foreground="#53dc96" FontSize="12" TextWrapping="Wrap" TextAlignment="Center"/>
+                            </Border>
+
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="КОД ИЗ ПИСЬМА (6 ЦИФР)" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                                <TextBox Text="{Binding ResetCode}" Watermark="Введите код" Height="45" FontSize="15" MaxLength="6"/>
+                            </StackPanel>
+
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="НОВЫЙ ПАРОЛЬ" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                                <TextBox Text="{Binding NewPassword}" Watermark="Введите новый пароль" PasswordChar="●" Height="45" FontSize="15"/>
+                            </StackPanel>
+
+                            <TextBlock Text="Минимум 8 символов, заглавная буква, строчная, цифра"
+                                       FontSize="10" Foreground="#9fb0c3" TextWrapping="Wrap" TextAlignment="Center"/>
+
+                            <Button Content="ИЗМЕНИТЬ ПАРОЛЬ" Command="{Binding ConfirmResetPasswordCommand}" HorizontalAlignment="Stretch" Classes="launch" Height="50" FontSize="16" Margin="0,10,0,0"/>
                         </StackPanel>
 
-                        <!-- Сообщение об ошибке/статусе -->
+                        <!-- Сообщение об ошибке -->
                         <Border Background="#1a0d0d" BorderBrush="#ff4d5d" BorderThickness="1" Padding="15" CornerRadius="5"
                                 IsVisible="{Binding HasLoginError}" Margin="0,5,0,0">
                             <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#ff4d5d" FontSize="13" TextWrapping="Wrap" TextAlignment="Center"/>
                         </Border>
 
-                        <CheckBox IsChecked="{Binding IsFullscreen}" Content="Полноэкранный режим" Margin="0,5,0,0"/>
-
-                        <Button Content="ВОЙТИ" Command="{Binding LoginCommand}" IsVisible="{Binding !IsRegistering}" HorizontalAlignment="Stretch" Classes="launch" Height="55" FontSize="18" Margin="0,10,0,0"/>
-                        <Button Content="РЕГИСТРАЦИЯ" Command="{Binding RegisterCommand}" IsVisible="{Binding IsRegistering}" HorizontalAlignment="Stretch" Classes="launch" Height="55" FontSize="18" Margin="0,10,0,0"/>
-
-                        <Button Content="Нет аккаунта? Регистрация" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding !IsRegistering}"
+                        <Button Content="← Назад к входу" Command="{Binding CancelResetCommand}"
                                 HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
-                        <Button Content="Уже есть аккаунт? Войти" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding IsRegistering}"
-                                HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
-
-                        <Button Content="Забыли пароль?" Command="{Binding ResetPasswordCommand}" IsVisible="{Binding !IsRegistering}"
-                                HorizontalAlignment="Center" Background="Transparent" Foreground="#ff9264" FontSize="11" Margin="0,5,0,0"/>
-
-                        <TextBlock Text="ЗАЩИЩЕННАЯ АВТОРИЗАЦИЯ" FontSize="10" Foreground="#9fb0c3" HorizontalAlignment="Center" LetterSpacing="1" Margin="0,10,0,0"/>
                     </StackPanel>
+                    </Grid>
                 </Border>
 
                 <!-- Главный экран -->

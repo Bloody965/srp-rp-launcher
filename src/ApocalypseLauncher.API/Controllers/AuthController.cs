@@ -287,11 +287,13 @@ public class AuthController : ControllerBase
     [HttpPost("request-reset-code")]
     public async Task<ActionResult<AuthResponse>> RequestResetCode([FromBody] RequestResetCodeRequest request)
     {
+        Console.WriteLine($"[RequestResetCode] Получен запрос на сброс пароля для email: {request.Email}");
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         // Защита от SQL инъекций
         if (ValidationService.ContainsSqlInjection(request.Email))
         {
+            Console.WriteLine($"[RequestResetCode] SQL инъекция обнаружена");
             await LogAction(null, "RESET_CODE_SQL_INJECTION", $"Email: {request.Email}", ip);
             return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
         }
@@ -299,6 +301,7 @@ public class AuthController : ControllerBase
         // Rate limiting - 3 попытки в час
         if (_rateLimitService.IsRateLimited($"reset:{ip}", 3, TimeSpan.FromHours(1)))
         {
+            Console.WriteLine($"[RequestResetCode] Rate limit превышен для IP: {ip}");
             await LogAction(null, "RESET_CODE_RATE_LIMITED", $"IP: {ip}", ip);
             return BadRequest(new AuthResponse
             {
@@ -310,6 +313,7 @@ public class AuthController : ControllerBase
         // Валидация email
         if (!ValidationService.IsValidEmail(request.Email))
         {
+            Console.WriteLine($"[RequestResetCode] Неверный формат email: {request.Email}");
             return BadRequest(new AuthResponse { Success = false, Message = "Неверный формат email" });
         }
 
@@ -319,6 +323,7 @@ public class AuthController : ControllerBase
 
         if (user == null)
         {
+            Console.WriteLine($"[RequestResetCode] Пользователь не найден для email: {request.Email}");
             // Не раскрываем существование пользователя
             await LogAction(null, "RESET_CODE_USER_NOT_FOUND", $"Email: {request.Email}, IP: {ip}", ip);
             return Ok(new AuthResponse
@@ -328,9 +333,13 @@ public class AuthController : ControllerBase
             });
         }
 
+        Console.WriteLine($"[RequestResetCode] Пользователь найден: {user.Username}, генерация кода...");
+
         // Генерация 6-значного кода
         var random = new Random();
         var code = random.Next(100000, 999999).ToString();
+
+        Console.WriteLine($"[RequestResetCode] Код сгенерирован: {code}");
 
         // Сохранение кода в базу
         var resetCode = new PasswordResetCode
@@ -345,8 +354,12 @@ public class AuthController : ControllerBase
         _context.PasswordResetCodes.Add(resetCode);
         await _context.SaveChangesAsync();
 
+        Console.WriteLine($"[RequestResetCode] Код сохранен в БД, отправка email...");
+
         // Отправка email
         var emailSent = await _emailService.SendPasswordResetEmailAsync(user.Email, user.Username, code);
+
+        Console.WriteLine($"[RequestResetCode] Email отправлен: {emailSent}");
 
         if (!emailSent)
         {
@@ -359,6 +372,8 @@ public class AuthController : ControllerBase
         }
 
         await LogAction(user.Id, "RESET_CODE_SENT", $"IP: {ip}", ip);
+
+        Console.WriteLine($"[RequestResetCode] Успешно завершено");
 
         return Ok(new AuthResponse
         {

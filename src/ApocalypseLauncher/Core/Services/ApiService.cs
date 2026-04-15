@@ -166,6 +166,58 @@ public class ApiService
             return ApiResponse<ModpackInfo>.Failure($"Ошибка: {ex.Message}");
         }
     }
+
+    public async Task<ApiResponse<string>> RequestResetCodeAsync(string email)
+    {
+        try
+        {
+            var request = new { email };
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/request-reset-code", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                if (result?.Success == true)
+                {
+                    return ApiResponse<string>.Success(result.Message ?? "Код отправлен на почту");
+                }
+                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка отправки кода");
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка отправки кода");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResponse<string>> ResetPasswordAsync(string email, string code, string newPassword)
+    {
+        try
+        {
+            var request = new { email, code, newPassword };
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/reset-password", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                if (result?.Success == true)
+                {
+                    return ApiResponse<string>.Success(result.Message ?? "Пароль успешно изменен");
+                }
+                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка сброса пароля");
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка сброса пароля");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
+        }
+    }
 }
 
 // DTOs
