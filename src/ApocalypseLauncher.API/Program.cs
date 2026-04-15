@@ -53,6 +53,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<RateLimitService>();
+builder.Services.AddSingleton<EmailService>();
 
 // Controllers
 builder.Services.AddControllers();

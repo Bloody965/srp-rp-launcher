@@ -15,6 +15,7 @@ public class AuthController : ControllerBase
     private readonly JwtService _jwtService;
     private readonly PasswordService _passwordService;
     private readonly RateLimitService _rateLimitService;
+    private readonly EmailService _emailService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -22,12 +23,14 @@ public class AuthController : ControllerBase
         JwtService jwtService,
         PasswordService passwordService,
         RateLimitService rateLimitService,
+        EmailService emailService,
         ILogger<AuthController> logger)
     {
         _context = context;
         _jwtService = jwtService;
         _passwordService = passwordService;
         _rateLimitService = rateLimitService;
+        _emailService = emailService;
         _logger = logger;
     }
 
@@ -281,27 +284,26 @@ public class AuthController : ControllerBase
         });
     }
 
-    [HttpPost("reset-password")]
-    public async Task<ActionResult<AuthResponse>> ResetPassword([FromBody] ResetPasswordRequest request)
+    [HttpPost("request-reset-code")]
+    public async Task<ActionResult<AuthResponse>> RequestResetCode([FromBody] RequestResetCodeRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         // Защита от SQL инъекций
-        if (ValidationService.ContainsSqlInjection(request.Email) ||
-            ValidationService.ContainsSqlInjection(request.NewPassword))
+        if (ValidationService.ContainsSqlInjection(request.Email))
         {
-            await LogAction(null, "RESET_PASSWORD_SQL_INJECTION", $"Email: {request.Email}", ip);
+            await LogAction(null, "RESET_CODE_SQL_INJECTION", $"Email: {request.Email}", ip);
             return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
         }
 
         // Rate limiting - 3 попытки в час
         if (_rateLimitService.IsRateLimited($"reset:{ip}", 3, TimeSpan.FromHours(1)))
         {
-            await LogAction(null, "RESET_PASSWORD_RATE_LIMITED", $"IP: {ip}", ip);
+            await LogAction(null, "RESET_CODE_RATE_LIMITED", $"IP: {ip}", ip);
             return BadRequest(new AuthResponse
             {
                 Success = false,
-                Message = "Слишком много попыток сброса пароля. Попробуйте позже."
+                Message = "Слишком много попыток. Попробуйте через час."
             });
         }
 
@@ -309,6 +311,97 @@ public class AuthController : ControllerBase
         if (!ValidationService.IsValidEmail(request.Email))
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Неверный формат email" });
+        }
+
+        // Поиск пользователя по email
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower());
+
+        if (user == null)
+        {
+            // Не раскрываем существование пользователя
+            await LogAction(null, "RESET_CODE_USER_NOT_FOUND", $"Email: {request.Email}, IP: {ip}", ip);
+            return Ok(new AuthResponse
+            {
+                Success = true,
+                Message = "Если email существует, код был отправлен на почту"
+            });
+        }
+
+        // Генерация 6-значного кода
+        var random = new Random();
+        var code = random.Next(100000, 999999).ToString();
+
+        // Сохранение кода в базу
+        var resetCode = new PasswordResetCode
+        {
+            UserId = user.Id,
+            Code = code,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(15),
+            IsUsed = false
+        };
+
+        _context.PasswordResetCodes.Add(resetCode);
+        await _context.SaveChangesAsync();
+
+        // Отправка email
+        var emailSent = await _emailService.SendPasswordResetEmailAsync(user.Email, user.Username, code);
+
+        if (!emailSent)
+        {
+            await LogAction(user.Id, "RESET_CODE_EMAIL_FAILED", $"IP: {ip}", ip);
+            return StatusCode(500, new AuthResponse
+            {
+                Success = false,
+                Message = "Ошибка отправки email. Попробуйте позже."
+            });
+        }
+
+        await LogAction(user.Id, "RESET_CODE_SENT", $"IP: {ip}", ip);
+
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Message = "Код для сброса пароля отправлен на вашу почту"
+        });
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<ActionResult<AuthResponse>> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        // Защита от SQL инъекций
+        if (ValidationService.ContainsSqlInjection(request.Email) ||
+            ValidationService.ContainsSqlInjection(request.NewPassword) ||
+            (request.Code != null && ValidationService.ContainsSqlInjection(request.Code)))
+        {
+            await LogAction(null, "RESET_PASSWORD_SQL_INJECTION", $"Email: {request.Email}", ip);
+            return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
+        }
+
+        // Rate limiting - 5 попыток в 15 минут
+        if (_rateLimitService.IsRateLimited($"reset_verify:{ip}", 5, TimeSpan.FromMinutes(15)))
+        {
+            await LogAction(null, "RESET_PASSWORD_RATE_LIMITED", $"IP: {ip}", ip);
+            return BadRequest(new AuthResponse
+            {
+                Success = false,
+                Message = "Слишком много попыток. Попробуйте через 15 минут."
+            });
+        }
+
+        // Валидация email
+        if (!ValidationService.IsValidEmail(request.Email))
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Неверный формат email" });
+        }
+
+        // Валидация кода
+        if (string.IsNullOrWhiteSpace(request.Code) || request.Code.Length != 6)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Введите 6-значный код из письма" });
         }
 
         // Валидация нового пароля
@@ -324,32 +417,37 @@ public class AuthController : ControllerBase
 
         if (user == null)
         {
-            // Не раскрываем существование пользователя
             await LogAction(null, "RESET_PASSWORD_USER_NOT_FOUND", $"Email: {request.Email}, IP: {ip}", ip);
-            return Ok(new AuthResponse
+            return BadRequest(new AuthResponse
             {
-                Success = true,
-                Message = "Если email существует, пароль был сброшен"
+                Success = false,
+                Message = "Неверный email или код"
             });
         }
 
-        // Проверка старого пароля (для безопасности)
-        if (!string.IsNullOrEmpty(request.OldPassword))
+        // Проверка кода
+        var resetCode = await _context.PasswordResetCodes
+            .Where(r => r.UserId == user.Id && r.Code == request.Code && !r.IsUsed && r.ExpiresAt > DateTime.UtcNow)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (resetCode == null)
         {
-            if (!_passwordService.VerifyPassword(request.OldPassword, user.PasswordHash))
+            await LogAction(user.Id, "RESET_PASSWORD_INVALID_CODE", $"IP: {ip}", ip);
+            return BadRequest(new AuthResponse
             {
-                await LogAction(user.Id, "RESET_PASSWORD_WRONG_OLD", $"IP: {ip}", ip);
-                return BadRequest(new AuthResponse
-                {
-                    Success = false,
-                    Message = "Неверный старый пароль"
-                });
-            }
+                Success = false,
+                Message = "Неверный или истекший код"
+            });
         }
 
         // Обновление пароля
         user.PasswordHash = _passwordService.HashPassword(request.NewPassword);
         user.UpdatedAt = DateTime.UtcNow;
+
+        // Отметка кода как использованного
+        resetCode.IsUsed = true;
+        resetCode.UsedAt = DateTime.UtcNow;
 
         // Отзыв всех активных сессий
         var sessions = await _context.LoginSessions

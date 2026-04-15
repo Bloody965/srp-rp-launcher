@@ -29,7 +29,7 @@ public class MainWindowViewModel : ViewModelBase
         _installer = new MinecraftInstaller(_minecraftDirectory);
         _gameLauncher = new GameLauncher();
         _audioService = new AudioService();
-        _apiService = new ApiService("http://localhost:5000");
+        _apiService = new ApiService("https://srp-rp-launcher-production.up.railway.app");
         _modpackUpdater = new ModpackUpdater(_minecraftDirectory, _apiService);
 
         // Подписываемся на события
@@ -61,6 +61,7 @@ public class MainWindowViewModel : ViewModelBase
         UpdateModpackCommand = ReactiveCommand.CreateFromTask(UpdateModpackAsync);
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
         LogoutCommand = ReactiveCommand.Create(Logout);
+        ResetPasswordCommand = ReactiveCommand.CreateFromTask(ResetPasswordAsync);
     }
 
     private string _username = "Survivor";
@@ -182,6 +183,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> UpdateModpackCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleRegisterCommand { get; }
     public ReactiveCommand<Unit, Unit> LogoutCommand { get; }
+    public ReactiveCommand<Unit, Unit> ResetPasswordCommand { get; }
 
     private async Task ChooseFolderAsync()
     {
@@ -230,6 +232,61 @@ public class MainWindowViewModel : ViewModelBase
         LoginErrorMessage = null;
         StatusMessage = "Вы вышли из аккаунта";
         Console.WriteLine("[Logout] Пользователь вышел из системы");
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        try
+        {
+            Console.WriteLine("[ResetPasswordAsync] Начало сброса пароля");
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LoginErrorMessage = null;
+            });
+
+            if (string.IsNullOrWhiteSpace(Email))
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    LoginErrorMessage = "Введите email для сброса пароля!";
+                });
+                Console.WriteLine("[ResetPasswordAsync] Ошибка: пустой email");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(Password))
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    LoginErrorMessage = "Введите новый пароль!";
+                });
+                Console.WriteLine("[ResetPasswordAsync] Ошибка: пустой пароль");
+                return;
+            }
+
+            StatusMessage = "Сброс пароля...";
+            Console.WriteLine($"[ResetPasswordAsync] Отправка запроса для email: {Email}");
+
+            // Здесь нужно добавить метод в ApiService для сброса пароля
+            // Пока просто покажем сообщение
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LoginErrorMessage = "Функция сброса пароля временно недоступна. Обратитесь к администратору.";
+                StatusMessage = "Сброс пароля недоступен";
+            });
+
+            Console.WriteLine("[ResetPasswordAsync] Функция в разработке");
+        }
+        catch (Exception ex)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LoginErrorMessage = $"Ошибка: {ex.Message}";
+                StatusMessage = "Ошибка";
+            });
+            Console.WriteLine($"[ResetPasswordAsync] EXCEPTION: {ex.Message}");
+        }
     }
 
     private async Task RegisterAsync()

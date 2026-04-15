@@ -89,6 +89,9 @@
                         <Button Content="Уже есть аккаунт? Войти" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding IsRegistering}"
                                 HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
 
+                        <Button Content="Забыли пароль?" Command="{Binding ResetPasswordCommand}" IsVisible="{Binding !IsRegistering}"
+                                HorizontalAlignment="Center" Background="Transparent" Foreground="#ff9264" FontSize="11" Margin="0,5,0,0"/>
+
                         <TextBlock Text="ЗАЩИЩЕННАЯ АВТОРИЗАЦИЯ" FontSize="10" Foreground="#9fb0c3" HorizontalAlignment="Center" LetterSpacing="1" Margin="0,10,0,0"/>
                     </StackPanel>
                 </Border>
