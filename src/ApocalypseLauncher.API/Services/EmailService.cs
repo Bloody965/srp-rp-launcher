@@ -1,4 +1,5 @@
 using System.Net.Http;
+using Microsoft.Extensions.Options;
 using Resend;
 
 namespace ApocalypseLauncher.API.Services;
@@ -33,10 +34,13 @@ public class EmailService
             Console.WriteLine($"[EmailService] API Key: {(_apiKey?.Length > 10 ? _apiKey.Substring(0, 10) + "..." : "NOT SET")}");
             Console.WriteLine($"[EmailService] From Email: {_fromEmail}");
 
-            var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+            var options = Options.Create(new ResendClientOptions
+            {
+                ApiToken = _apiKey
+            });
 
-            var resend = new ResendClient(_apiKey, httpClient);
+            var httpClient = new HttpClient();
+            var resend = new ResendClient(options, httpClient);
 
             var htmlContent = $@"
                 <html>
@@ -95,9 +99,9 @@ POST-APOCALYPSE RESIDENT RP | 2026
             Console.WriteLine($"[EmailService] Отправка через Resend...");
             var response = await resend.EmailSendAsync(message);
 
-            Console.WriteLine($"[EmailService] Ответ от Resend: Success={response.IsSuccessStatusCode}, EmailId={response.Content}");
+            Console.WriteLine($"[EmailService] Ответ от Resend: StatusCode={response.StatusCode}, EmailId={response.Content}");
 
-            return response.IsSuccessStatusCode;
+            return response.StatusCode == System.Net.HttpStatusCode.OK;
         }
         catch (Exception ex)
         {
