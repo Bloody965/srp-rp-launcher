@@ -1,0 +1,148 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ApocalypseLauncher.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        x:Class="ApocalypseLauncher.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="SRP-RP Launcher"
+        Width="900" Height="600"
+        MinWidth="700" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        CanResize="True">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid>
+        <!-- Основной контент -->
+        <Grid Margin="0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Шапка -->
+            <Border Grid.Row="0" Background="#0c121b" BorderBrush="#ff9264" BorderThickness="0,0,0,1" Padding="20,15">
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="SRP-RP" FontSize="18" FontWeight="Bold" Foreground="#ff4d5d" Margin="0,0,15,0"/>
+                        <TextBlock Text="Minecraft 1.20.1 Forge" FontSize="13" Foreground="#9fb0c3" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Профиль пользователя -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="15" IsVisible="{Binding IsLoggedIn}">
+                        <Border Background="#0d1420" BorderBrush="#ff9264" BorderThickness="1" CornerRadius="5" Padding="15,8">
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="{Binding Username}" FontSize="13" FontWeight="SemiBold" Foreground="#ff4d5d"/>
+                                <TextBlock Text="{Binding UserEmail}" FontSize="10" Foreground="#9fb0c3"/>
+                            </StackPanel>
+                        </Border>
+                        <Button Content="ВЫЙТИ" Command="{Binding LogoutCommand}"
+                                Background="#1a0d0d" Foreground="#ff4d5d"
+                                BorderBrush="#ff4d5d" BorderThickness="1"
+                                Padding="15,8" FontSize="11" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Контент -->
+            <Grid Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+
+                <!-- Экран входа -->
+                <Border Classes="panel" IsVisible="{Binding !IsLoggedIn}" MaxWidth="450">
+                    <StackPanel Spacing="25" Margin="20">
+                        <TextBlock Text="SRP-RP" FontSize="48" FontWeight="Bold" Foreground="#ff4d5d" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                        <TextBlock Text="POST-APOCALYPSE LAUNCHER" FontSize="14" Foreground="#ff9264" HorizontalAlignment="Center" LetterSpacing="2" Margin="0,0,0,20"/>
+
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="ИМЯ ИГРОКА" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                            <TextBox Text="{Binding Username}" Watermark="Введите ваше имя" Height="45" FontSize="15"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="10" IsVisible="{Binding IsRegistering}">
+                            <TextBlock Text="EMAIL" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                            <TextBox Text="{Binding Email}" Watermark="Введите email" Height="45" FontSize="15"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="ПАРОЛЬ" FontSize="11" Foreground="#9fb0c3" LetterSpacing="1"/>
+                            <TextBox Text="{Binding Password}" Watermark="Введите пароль" PasswordChar="●" Height="45" FontSize="15"/>
+                        </StackPanel>
+
+                        <!-- Сообщение об ошибке/статусе -->
+                        <Border Background="#1a0d0d" BorderBrush="#ff4d5d" BorderThickness="1" Padding="15" CornerRadius="5"
+                                IsVisible="{Binding HasLoginError}" Margin="0,5,0,0">
+                            <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#ff4d5d" FontSize="13" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Border>
+
+                        <CheckBox IsChecked="{Binding IsFullscreen}" Content="Полноэкранный режим" Margin="0,5,0,0"/>
+
+                        <Button Content="ВОЙТИ" Command="{Binding LoginCommand}" IsVisible="{Binding !IsRegistering}" HorizontalAlignment="Stretch" Classes="launch" Height="55" FontSize="18" Margin="0,10,0,0"/>
+                        <Button Content="РЕГИСТРАЦИЯ" Command="{Binding RegisterCommand}" IsVisible="{Binding IsRegistering}" HorizontalAlignment="Stretch" Classes="launch" Height="55" FontSize="18" Margin="0,10,0,0"/>
+
+                        <Button Content="Нет аккаунта? Регистрация" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding !IsRegistering}"
+                                HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
+                        <Button Content="Уже есть аккаунт? Войти" Command="{Binding ToggleRegisterCommand}" IsVisible="{Binding IsRegistering}"
+                                HorizontalAlignment="Center" Background="Transparent" Foreground="#6cc8ff" FontSize="12" Margin="0,10,0,0"/>
+
+                        <TextBlock Text="ЗАЩИЩЕННАЯ АВТОРИЗАЦИЯ" FontSize="10" Foreground="#9fb0c3" HorizontalAlignment="Center" LetterSpacing="1" Margin="0,10,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Главный экран -->
+                <Grid IsVisible="{Binding IsLoggedIn}" MaxWidth="500">
+                    <StackPanel Spacing="20" Margin="40">
+
+                        <!-- Логотип SRP-RP -->
+                        <StackPanel Spacing="5" Margin="0,0,0,20">
+                            <TextBlock Text="SRP-RP" FontSize="56" FontWeight="Bold" Foreground="#ff4d5d" HorizontalAlignment="Center"/>
+                            <TextBlock Text="MINECRAFT 1.20.1 FORGE" FontSize="13" Foreground="#ff9264" HorizontalAlignment="Center" LetterSpacing="2"/>
+                            <TextBlock Text="POST-APOCALYPSE RESIDENT RP" FontSize="11" Foreground="#9fb0c3" HorizontalAlignment="Center" LetterSpacing="1" Margin="0,5,0,0"/>
+                            <TextBlock Text="{Binding ModpackVersion}" FontSize="10" Foreground="#6cc8ff" HorizontalAlignment="Center" LetterSpacing="1" Margin="0,5,0,0"/>
+                        </StackPanel>
+
+                        <!-- Кнопки в столбик -->
+                        <StackPanel Spacing="12">
+                            <Button Content="ИГРАТЬ" Command="{Binding LaunchCommand}" IsVisible="{Binding IsInstalled}" Classes="launch" HorizontalAlignment="Stretch" Height="65" FontSize="22"/>
+
+                            <Button Content="УСТАНОВИТЬ" Command="{Binding InstallCommand}" IsVisible="{Binding !IsInstalled}" HorizontalAlignment="Stretch" Height="50" FontSize="16"/>
+                            <Button Content="ПРОВЕРИТЬ ФАЙЛЫ" Command="{Binding InstallCommand}" IsVisible="{Binding IsInstalled}" HorizontalAlignment="Stretch" Height="50" FontSize="14"/>
+                            <Button Content="ОБНОВИТЬ СБОРКУ" Command="{Binding UpdateModpackCommand}" IsVisible="{Binding IsInstalled}" HorizontalAlignment="Stretch" Height="50" FontSize="14"/>
+
+                            <Button Content="ВЫБРАТЬ ПАПКУ" Click="ChooseFolderButton_Click" HorizontalAlignment="Stretch" Height="45" FontSize="13"/>
+                        </StackPanel>
+
+                        <!-- Статус и прогресс -->
+                        <Border Classes="panel" IsVisible="{Binding StatusMessage, Converter={x:Static ObjectConverters.IsNotNull}}" Padding="20" Margin="0,10,0,0">
+                            <StackPanel Spacing="12">
+                                <TextBlock Text="{Binding StatusMessage}" Classes="status" TextWrapping="Wrap" FontSize="13" TextAlignment="Center"/>
+                                <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="6" IsVisible="{Binding ProgressValue, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            </StackPanel>
+                        </Border>
+
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- Футер -->
+            <Border Grid.Row="2" Background="#0c121b" BorderBrush="#ff9264" BorderThickness="0,1,0,0" Padding="20,10">
+                <Grid>
+                    <TextBlock Text="SRP-RP Launcher v1.0" FontSize="11" Foreground="#9fb0c3" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    <TextBlock Text="Создано для SRP-RP проекта" FontSize="11" Foreground="#9fb0c3" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Оверлей когда игра запущена -->
+        <Border Background="#DD000000" IsVisible="{Binding IsGameRunning}">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="15">
+                <TextBlock Text="Игра запущена" FontSize="24" FontWeight="SemiBold" Foreground="#ff4d5d" HorizontalAlignment="Center"/>
+                <TextBlock Text="Лаунчер можно свернуть" FontSize="13" Foreground="#edf3fb" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
