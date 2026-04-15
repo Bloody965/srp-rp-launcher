@@ -79,19 +79,21 @@ POST-APOCALYPSE RESIDENT RP | 2026
 
             Console.WriteLine($"[EmailService] Создание письма...");
 
-            var message = new EmailMessage();
-            message.From = $"{_fromName} <{_fromEmail}>";
-            message.To.Add(toEmail);
-            message.Subject = "Сброс пароля - SRP-RP Launcher";
-            message.HtmlBody = htmlContent;
-            message.TextBody = plainTextContent;
+            var message = new EmailMessage
+            {
+                From = $"{_fromName} <{_fromEmail}>",
+                To = new List<string> { toEmail },
+                Subject = "Сброс пароля - SRP-RP Launcher",
+                HtmlBody = htmlContent,
+                TextBody = plainTextContent
+            };
 
             Console.WriteLine($"[EmailService] Отправка через Resend...");
             var response = await resend.EmailSendAsync(message);
 
-            Console.WriteLine($"[EmailService] Ответ от Resend: {response}");
+            Console.WriteLine($"[EmailService] Ответ от Resend: EmailId={response.Data?.Id}");
 
-            return true;
+            return response.Data?.Id != null;
         }
         catch (Exception ex)
         {
