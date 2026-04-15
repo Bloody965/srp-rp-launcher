@@ -11,9 +11,18 @@ public class EmailService
 
     public EmailService(IConfiguration configuration)
     {
-        _apiKey = configuration["SendGrid:ApiKey"] ?? throw new Exception("SendGrid API key not configured");
-        _fromEmail = configuration["SendGrid:FromEmail"] ?? throw new Exception("SendGrid FromEmail not configured");
-        _fromName = configuration["SendGrid:FromName"] ?? "SRP-RP Launcher";
+        // Читаем из переменных окружения (Railway) или из appsettings.json
+        _apiKey = Environment.GetEnvironmentVariable("SENDGRID_API_KEY")
+                  ?? configuration["SendGrid:ApiKey"]
+                  ?? throw new Exception("SendGrid API key not configured");
+
+        _fromEmail = Environment.GetEnvironmentVariable("SENDGRID_FROM_EMAIL")
+                     ?? configuration["SendGrid:FromEmail"]
+                     ?? throw new Exception("SendGrid FromEmail not configured");
+
+        _fromName = Environment.GetEnvironmentVariable("SENDGRID_FROM_NAME")
+                    ?? configuration["SendGrid:FromName"]
+                    ?? "SRP-RP Launcher";
     }
 
     public async Task<bool> SendPasswordResetEmailAsync(string toEmail, string username, string resetCode)
