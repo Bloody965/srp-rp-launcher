@@ -29,10 +29,16 @@ public class EmailService
     {
         try
         {
+            Console.WriteLine($"[EmailService] Начало отправки email на: {toEmail}");
+            Console.WriteLine($"[EmailService] API Key: {(_apiKey?.Length > 10 ? _apiKey.Substring(0, 10) + "..." : "NOT SET")}");
+            Console.WriteLine($"[EmailService] From Email: {_fromEmail}");
+
             var client = new SendGridClient(_apiKey);
             var from = new EmailAddress(_fromEmail, _fromName);
             var to = new EmailAddress(toEmail);
             var subject = "Сброс пароля - SRP-RP Launcher";
+
+            Console.WriteLine($"[EmailService] Создание письма...");
 
             var htmlContent = $@"
                 <html>
@@ -78,7 +84,18 @@ POST-APOCALYPSE RESIDENT RP | 2026
             ";
 
             var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlContent);
+
+            Console.WriteLine($"[EmailService] Отправка через SendGrid...");
             var response = await client.SendEmailAsync(msg);
+
+            Console.WriteLine($"[EmailService] Ответ от SendGrid: StatusCode={response.StatusCode}");
+            Console.WriteLine($"[EmailService] IsSuccessStatusCode: {response.IsSuccessStatusCode}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Body.ReadAsStringAsync();
+                Console.WriteLine($"[EmailService] Ошибка SendGrid: {body}");
+            }
 
             return response.IsSuccessStatusCode;
         }
