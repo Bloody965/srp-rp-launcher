@@ -1,0 +1,11 @@
+publish/
+logs/
+bin/
+obj/
+*.log
+*.pdb
+*.user
+.vs/
+.vscode/
+*.suo
+*.cache
