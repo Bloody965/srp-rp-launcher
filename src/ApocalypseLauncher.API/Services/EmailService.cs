@@ -1,5 +1,4 @@
-using SendGrid;
-using SendGrid.Helpers.Mail;
+using Resend;
 
 namespace ApocalypseLauncher.API.Services;
 
@@ -12,16 +11,16 @@ public class EmailService
     public EmailService(IConfiguration configuration)
     {
         // Читаем из переменных окружения (Railway) или из appsettings.json
-        _apiKey = Environment.GetEnvironmentVariable("SENDGRID_API_KEY")
-                  ?? configuration["SendGrid:ApiKey"]
-                  ?? throw new Exception("SendGrid API key not configured");
+        _apiKey = Environment.GetEnvironmentVariable("RESEND_API_KEY")
+                  ?? configuration["Resend:ApiKey"]
+                  ?? throw new Exception("Resend API key not configured");
 
-        _fromEmail = Environment.GetEnvironmentVariable("SENDGRID_FROM_EMAIL")
-                     ?? configuration["SendGrid:FromEmail"]
-                     ?? throw new Exception("SendGrid FromEmail not configured");
+        _fromEmail = Environment.GetEnvironmentVariable("RESEND_FROM_EMAIL")
+                     ?? configuration["Resend:FromEmail"]
+                     ?? throw new Exception("Resend FromEmail not configured");
 
-        _fromName = Environment.GetEnvironmentVariable("SENDGRID_FROM_NAME")
-                    ?? configuration["SendGrid:FromName"]
+        _fromName = Environment.GetEnvironmentVariable("RESEND_FROM_NAME")
+                    ?? configuration["Resend:FromName"]
                     ?? "SRP-RP Launcher";
     }
 
@@ -33,12 +32,7 @@ public class EmailService
             Console.WriteLine($"[EmailService] API Key: {(_apiKey?.Length > 10 ? _apiKey.Substring(0, 10) + "..." : "NOT SET")}");
             Console.WriteLine($"[EmailService] From Email: {_fromEmail}");
 
-            var client = new SendGridClient(_apiKey);
-            var from = new EmailAddress(_fromEmail, _fromName);
-            var to = new EmailAddress(toEmail);
-            var subject = "Сброс пароля - SRP-RP Launcher";
-
-            Console.WriteLine($"[EmailService] Создание письма...");
+            var resend = new ResendClient(_apiKey);
 
             var htmlContent = $@"
                 <html>
@@ -83,25 +77,26 @@ SRP-RP LAUNCHER - Сброс пароля
 POST-APOCALYPSE RESIDENT RP | 2026
             ";
 
-            var msg = MailHelper.CreateSingleEmail(from, to, subject, plainTextContent, htmlContent);
+            Console.WriteLine($"[EmailService] Создание письма...");
 
-            Console.WriteLine($"[EmailService] Отправка через SendGrid...");
-            var response = await client.SendEmailAsync(msg);
+            var message = new EmailMessage();
+            message.From = $"{_fromName} <{_fromEmail}>";
+            message.To.Add(toEmail);
+            message.Subject = "Сброс пароля - SRP-RP Launcher";
+            message.HtmlBody = htmlContent;
+            message.TextBody = plainTextContent;
 
-            Console.WriteLine($"[EmailService] Ответ от SendGrid: StatusCode={response.StatusCode}");
-            Console.WriteLine($"[EmailService] IsSuccessStatusCode: {response.IsSuccessStatusCode}");
+            Console.WriteLine($"[EmailService] Отправка через Resend...");
+            var response = await resend.EmailSendAsync(message);
 
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Body.ReadAsStringAsync();
-                Console.WriteLine($"[EmailService] Ошибка SendGrid: {body}");
-            }
+            Console.WriteLine($"[EmailService] Ответ от Resend: {response}");
 
-            return response.IsSuccessStatusCode;
+            return true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[EmailService] Error sending email: {ex.Message}");
+            Console.WriteLine($"[EmailService] Stack trace: {ex.StackTrace}");
             return false;
         }
     }
