@@ -1,6 +1,6 @@
 using System.Net.Http;
-using Microsoft.Extensions.Options;
-using Resend;
+using System.Text;
+using System.Text.Json;
 
 namespace ApocalypseLauncher.API.Services;
 
@@ -9,10 +9,10 @@ public class EmailService
     private readonly string _apiKey;
     private readonly string _fromEmail;
     private readonly string _fromName;
+    private readonly HttpClient _httpClient;
 
     public EmailService(IConfiguration configuration)
     {
-        // Читаем из переменных окружения (Railway) или из appsettings.json
         _apiKey = Environment.GetEnvironmentVariable("RESEND_API_KEY")
                   ?? configuration["Resend:ApiKey"]
                   ?? throw new Exception("Resend API key not configured");
@@ -24,6 +24,9 @@ public class EmailService
         _fromName = Environment.GetEnvironmentVariable("RESEND_FROM_NAME")
                     ?? configuration["Resend:FromName"]
                     ?? "SRP-RP Launcher";
+
+        _httpClient = new HttpClient();
+        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
     }
 
     public async Task<bool> SendPasswordResetEmailAsync(string toEmail, string username, string resetCode)
@@ -33,14 +36,6 @@ public class EmailService
             Console.WriteLine($"[EmailService] Начало отправки email на: {toEmail}");
             Console.WriteLine($"[EmailService] API Key: {(_apiKey?.Length > 10 ? _apiKey.Substring(0, 10) + "..." : "NOT SET")}");
             Console.WriteLine($"[EmailService] From Email: {_fromEmail}");
-
-            var options = Options.Create(new ResendClientOptions
-            {
-                ApiToken = _apiKey
-            });
-
-            var httpClient = new HttpClient();
-            var resend = new ResendClient(options, httpClient);
 
             var htmlContent = $@"
                 <html>
@@ -68,8 +63,7 @@ public class EmailService
                 </html>
             ";
 
-            var plainTextContent = $@"
-SRP-RP LAUNCHER - Сброс пароля
+            var plainTextContent = $@"SRP-RP LAUNCHER - Сброс пароля
 
 Привет, {username}!
 
@@ -82,26 +76,30 @@ SRP-RP LAUNCHER - Сброс пароля
 
 Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо.
 
-POST-APOCALYPSE RESIDENT RP | 2026
-            ";
+POST-APOCALYPSE RESIDENT RP | 2026";
 
             Console.WriteLine($"[EmailService] Создание письма...");
 
-            var message = new EmailMessage
+            var payload = new
             {
-                From = $"{_fromName} <{_fromEmail}>",
-                To = toEmail,
-                Subject = "Сброс пароля - SRP-RP Launcher",
-                HtmlBody = htmlContent,
-                TextBody = plainTextContent
+                from = $"{_fromName} <{_fromEmail}>",
+                to = new[] { toEmail },
+                subject = "Сброс пароля - SRP-RP Launcher",
+                html = htmlContent,
+                text = plainTextContent
             };
 
-            Console.WriteLine($"[EmailService] Отправка через Resend...");
-            var response = await resend.EmailSendAsync(message);
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            Console.WriteLine($"[EmailService] Ответ от Resend: StatusCode={response.StatusCode}, EmailId={response.Content}");
+            Console.WriteLine($"[EmailService] Отправка через Resend API...");
+            var response = await _httpClient.PostAsync("https://api.resend.com/emails", content);
 
-            return response.StatusCode == System.Net.HttpStatusCode.OK;
+            var responseBody = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"[EmailService] Ответ от Resend: StatusCode={response.StatusCode}");
+            Console.WriteLine($"[EmailService] Response Body: {responseBody}");
+
+            return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
         {
