@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using ApocalypseLauncher.API.Services;
 
 namespace ApocalypseLauncher.API.Controllers;
 
@@ -8,11 +9,13 @@ public class ServerController : ControllerBase
 {
     private readonly ILogger<ServerController> _logger;
     private readonly IConfiguration _configuration;
+    private readonly MinecraftServerService _minecraftService;
 
-    public ServerController(ILogger<ServerController> logger, IConfiguration configuration)
+    public ServerController(ILogger<ServerController> logger, IConfiguration configuration, MinecraftServerService minecraftService)
     {
         _logger = logger;
         _configuration = configuration;
+        _minecraftService = minecraftService;
     }
 
     [HttpGet("status")]
@@ -24,21 +27,16 @@ public class ServerController : ControllerBase
             var serverAddress = _configuration["MinecraftServer:Address"] ?? "localhost";
             var serverPort = int.Parse(_configuration["MinecraftServer:Port"] ?? "25565");
 
-            // Проверяем доступность сервера (простая проверка TCP порта)
-            bool isOnline = await CheckServerOnlineAsync(serverAddress, serverPort);
-
-            // TODO: Реализовать получение реального количества игроков через Minecraft Server Query
-            // Пока возвращаем заглушку
-            int playersOnline = isOnline ? 0 : 0;
-            int maxPlayers = 100;
+            // Получаем информацию о сервере
+            var serverInfo = await _minecraftService.GetServerInfoAsync(serverAddress, serverPort);
 
             return Ok(new ServerStatusResponse
             {
-                IsOnline = isOnline,
-                PlayersOnline = playersOnline,
-                MaxPlayers = maxPlayers,
-                ServerVersion = "1.20.1 Forge",
-                Motd = "SRP-RP Server"
+                IsOnline = serverInfo.IsOnline,
+                PlayersOnline = serverInfo.PlayersOnline,
+                MaxPlayers = serverInfo.MaxPlayers,
+                ServerVersion = serverInfo.ServerVersion,
+                Motd = serverInfo.Motd
             });
         }
         catch (Exception ex)
@@ -52,29 +50,6 @@ public class ServerController : ControllerBase
                 ServerVersion = "1.20.1 Forge",
                 Motd = "SRP-RP Server"
             });
-        }
-    }
-
-    private async Task<bool> CheckServerOnlineAsync(string address, int port)
-    {
-        try
-        {
-            using var client = new System.Net.Sockets.TcpClient();
-            var connectTask = client.ConnectAsync(address, port);
-            var timeoutTask = Task.Delay(3000); // 3 секунды таймаут
-
-            var completedTask = await Task.WhenAny(connectTask, timeoutTask);
-
-            if (completedTask == connectTask && client.Connected)
-            {
-                return true;
-            }
-
-            return false;
-        }
-        catch
-        {
-            return false;
         }
     }
 }

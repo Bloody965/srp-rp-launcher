@@ -72,6 +72,7 @@ builder.Services.AddSingleton<JwtService>();
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddSingleton<EmailService>();
+builder.Services.AddSingleton<MinecraftServerService>();
 
 // Controllers
 builder.Services.AddControllers();

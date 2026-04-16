@@ -64,11 +64,11 @@
 
                                     <!-- Режим редактирования никнейма -->
                                     <StackPanel Spacing="6" IsVisible="{Binding IsEditingNickname}">
-                                        <TextBox Text="{Binding NewNickname}" Watermark="Новый никнейм" Height="36" FontSize="14" MaxWidth="200"/>
-                                        <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#ff6a4a" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding HasLoginError}"/>
-                                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6">
-                                            <Button Grid.Column="0" Content="✓" Command="{Binding SaveNicknameCommand}" Classes="primaryButton" Height="32" FontSize="14" Padding="8,0"/>
-                                            <Button Grid.Column="1" Content="✕" Command="{Binding CancelEditNicknameCommand}" Classes="ghostButton" Height="32" FontSize="14" Padding="8,0"/>
+                                        <TextBox Text="{Binding NewNickname}" Watermark="Новый никнейм" Height="40" FontSize="15" MinWidth="220" MaxWidth="280"/>
+                                        <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#ff6a4a" FontSize="11" TextWrapping="Wrap" IsVisible="{Binding HasLoginError}" MaxWidth="280"/>
+                                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" MaxWidth="280">
+                                            <Button Grid.Column="0" Content="✓ Сохранить" Command="{Binding SaveNicknameCommand}" Classes="primaryButton" Height="36" FontSize="13" Padding="12,0"/>
+                                            <Button Grid.Column="1" Content="✕ Отмена" Command="{Binding CancelEditNicknameCommand}" Classes="ghostButton" Height="36" FontSize="13" Padding="12,0"/>
                                         </Grid>
                                     </StackPanel>
 
