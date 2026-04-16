@@ -7,23 +7,41 @@ using ApocalypseLauncher.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Генерация секретного ключа при первом запуске (сохраните его в appsettings.json!)
+// Генерация секретного ключа при первом запуске (сохраните его в переменных окружения!)
 var jwtSecret = builder.Configuration["Jwt:SecretKey"];
-if (string.IsNullOrEmpty(jwtSecret))
+if (string.IsNullOrEmpty(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_64_CHARACTERS_STRING_FOR_PRODUCTION")
 {
     jwtSecret = JwtService.GenerateSecureKey();
     Console.WriteLine("===========================================");
-    Console.WriteLine("ВАЖНО! Сохраните этот JWT секретный ключ:");
+    Console.WriteLine("⚠️ ВАЖНО! JWT секрет не установлен!");
+    Console.WriteLine("Сгенерирован временный ключ (будет меняться при каждом деплое):");
     Console.WriteLine(jwtSecret);
-    Console.WriteLine("Добавьте его в appsettings.json:");
-    Console.WriteLine("\"Jwt\": { \"SecretKey\": \"" + jwtSecret + "\" }");
+    Console.WriteLine("");
+    Console.WriteLine("Для продакшена установите переменную окружения:");
+    Console.WriteLine("JWT__SECRETKEY=" + jwtSecret);
     Console.WriteLine("===========================================");
 }
 
 // Database
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? "Data Source=apocalypse_launcher.db"));
+var databaseUrl = builder.Configuration.GetConnectionString("DATABASE_URL")
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+
+if (!string.IsNullOrEmpty(databaseUrl))
+{
+    // PostgreSQL (Railway)
+    Console.WriteLine("Using PostgreSQL database");
+    builder.Services.AddDbContext<AppDbContext>(options =>
+        options.UseNpgsql(databaseUrl));
+}
+else
+{
+    // SQLite (локальная разработка)
+    Console.WriteLine("Using SQLite database");
+    var sqliteConnection = builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? "Data Source=apocalypse_launcher.db";
+    builder.Services.AddDbContext<AppDbContext>(options =>
+        options.UseSqlite(sqliteConnection));
+}
 
 // JWT Authentication
 var key = Encoding.UTF8.GetBytes(jwtSecret);
