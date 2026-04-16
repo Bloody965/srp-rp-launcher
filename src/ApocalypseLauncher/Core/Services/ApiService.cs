@@ -218,6 +218,82 @@ public class ApiService
             return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
         }
     }
+
+    public async Task<ApiResponse<ProfileInfo>> GetProfileAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/auth/profile");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ProfileResponseDto>();
+                if (result?.Success == true)
+                {
+                    return ApiResponse<ProfileInfo>.Success(new ProfileInfo
+                    {
+                        Username = result.Username,
+                        Email = result.Email,
+                        PlayTimeMinutes = result.PlayTimeMinutes,
+                        CreatedAt = result.CreatedAt,
+                        LastLoginAt = result.LastLoginAt
+                    });
+                }
+            }
+
+            return ApiResponse<ProfileInfo>.Failure("Не удалось получить профиль");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<ProfileInfo>.Failure($"Ошибка: {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResponse<string>> ChangeUsernameAsync(string newUsername)
+    {
+        try
+        {
+            var request = new { newUsername };
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/change-username", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                if (result?.Success == true)
+                {
+                    return ApiResponse<string>.Success(result.Message ?? "Никнейм изменен");
+                }
+                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка смены никнейма");
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка смены никнейма");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResponse<bool>> UpdatePlayTimeAsync(int minutesPlayed)
+    {
+        try
+        {
+            var request = new { minutesPlayed };
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/update-playtime", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return ApiResponse<bool>.Success(true);
+            }
+
+            return ApiResponse<bool>.Failure("Не удалось обновить игровое время");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<bool>.Failure($"Ошибка: {ex.Message}");
+        }
+    }
 }
 
 // DTOs
@@ -236,6 +312,16 @@ public class UserInfoDto
     public string Email { get; set; } = "";
     public string MinecraftUUID { get; set; } = "";
     public bool IsWhitelisted { get; set; }
+}
+
+public class ProfileResponseDto
+{
+    public bool Success { get; set; }
+    public string Username { get; set; } = "";
+    public string Email { get; set; } = "";
+    public int PlayTimeMinutes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
 }
 
 public class ModpackInfoDto
@@ -266,4 +352,14 @@ public class ModpackInfo
     public string SHA256Hash { get; set; } = "";
     public long FileSizeBytes { get; set; }
     public string? Changelog { get; set; }
+}
+
+// ProfileInfo model
+public class ProfileInfo
+{
+    public string Username { get; set; } = "";
+    public string Email { get; set; } = "";
+    public int PlayTimeMinutes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
 }

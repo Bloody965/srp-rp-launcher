@@ -65,6 +65,87 @@ public class MainWindowViewModel : ViewModelBase
         SendResetCodeCommand = ReactiveCommand.CreateFromTask(SendResetCodeAsync);
         ConfirmResetPasswordCommand = ReactiveCommand.CreateFromTask(ConfirmResetPasswordAsync);
         CancelResetCommand = ReactiveCommand.Create(CancelReset);
+        EditNicknameCommand = ReactiveCommand.Create(StartEditNickname);
+        SaveNicknameCommand = ReactiveCommand.CreateFromTask(SaveNicknameAsync);
+        CancelEditNicknameCommand = ReactiveCommand.Create(CancelEditNickname);
+
+        // Автоматический вход при запуске
+        _ = TryAutoLoginAsync();
+    }
+
+    private string GetTokenFilePath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var launcherDir = Path.Combine(appData, "SRP-RP-Launcher");
+        Directory.CreateDirectory(launcherDir);
+        return Path.Combine(launcherDir, "session.dat");
+    }
+
+    private void SaveToken(string token, string username, string email)
+    {
+        try
+        {
+            var data = $"{token}|{username}|{email}";
+            File.WriteAllText(GetTokenFilePath(), data);
+            Console.WriteLine("[SaveToken] Токен сохранен");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SaveToken] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task TryAutoLoginAsync()
+    {
+        try
+        {
+            var tokenFile = GetTokenFilePath();
+            if (!File.Exists(tokenFile))
+            {
+                Console.WriteLine("[TryAutoLogin] Токен не найден");
+                return;
+            }
+
+            var data = File.ReadAllText(tokenFile).Split('|');
+            if (data.Length != 3)
+            {
+                Console.WriteLine("[TryAutoLogin] Неверный формат токена");
+                return;
+            }
+
+            var token = data[0];
+            var username = data[1];
+            var email = data[2];
+
+            _apiService.SetAuthToken(token);
+            var verifyResult = await _apiService.VerifyTokenAsync();
+
+            if (verifyResult.IsSuccess)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    IsLoggedIn = true;
+                    CurrentView = "Main";
+                    Username = username;
+                    UserEmail = email;
+                    StatusMessage = $"Добро пожаловать, {username}!";
+                });
+
+                CheckInstallation();
+                await CheckModpackVersionAsync();
+                await LoadProfileAsync();
+                Console.WriteLine("[TryAutoLogin] Автоматический вход выполнен");
+            }
+            else
+            {
+                File.Delete(tokenFile);
+                Console.WriteLine("[TryAutoLogin] Токен недействителен, удален");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TryAutoLogin] Ошибка: {ex.Message}");
+        }
     }
 
     private string _username = "Survivor";
@@ -86,6 +167,45 @@ public class MainWindowViewModel : ViewModelBase
     {
         get => _userEmail;
         set => this.RaiseAndSetIfChanged(ref _userEmail, value);
+    }
+
+    private string _playTimeFormatted = "0 ч";
+    public string PlayTimeFormatted
+    {
+        get => _playTimeFormatted;
+        set => this.RaiseAndSetIfChanged(ref _playTimeFormatted, value);
+    }
+
+    private int _playTimeMinutes = 0;
+    public int PlayTimeMinutes
+    {
+        get => _playTimeMinutes;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _playTimeMinutes, value);
+            UpdatePlayTimeFormatted();
+        }
+    }
+
+    private void UpdatePlayTimeFormatted()
+    {
+        var hours = _playTimeMinutes / 60;
+        var minutes = _playTimeMinutes % 60;
+        PlayTimeFormatted = hours > 0 ? $"{hours} ч {minutes} мин" : $"{minutes} мин";
+    }
+
+    private string _newNickname = "";
+    public string NewNickname
+    {
+        get => _newNickname;
+        set => this.RaiseAndSetIfChanged(ref _newNickname, value);
+    }
+
+    private bool _isEditingNickname = false;
+    public bool IsEditingNickname
+    {
+        get => _isEditingNickname;
+        set => this.RaiseAndSetIfChanged(ref _isEditingNickname, value);
     }
 
     private string _password = "";
@@ -218,6 +338,9 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> SendResetCodeCommand { get; }
     public ReactiveCommand<Unit, Unit> ConfirmResetPasswordCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelResetCommand { get; }
+    public ReactiveCommand<Unit, Unit> EditNicknameCommand { get; }
+    public ReactiveCommand<Unit, Unit> SaveNicknameCommand { get; }
+    public ReactiveCommand<Unit, Unit> CancelEditNicknameCommand { get; }
 
     private async Task ChooseFolderAsync()
     {
@@ -261,10 +384,27 @@ public class MainWindowViewModel : ViewModelBase
     private void Logout()
     {
         IsLoggedIn = false;
+        IsRegistering = false;
         CurrentView = "Login";
         Password = "";
         LoginErrorMessage = null;
         StatusMessage = "Вы вышли из аккаунта";
+
+        // Удаляем сохраненный токен
+        try
+        {
+            var tokenFile = GetTokenFilePath();
+            if (File.Exists(tokenFile))
+            {
+                File.Delete(tokenFile);
+                Console.WriteLine("[Logout] Токен удален");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Logout] Ошибка удаления токена: {ex.Message}");
+        }
+
         Console.WriteLine("[Logout] Пользователь вышел из системы");
     }
 
@@ -474,11 +614,15 @@ public class MainWindowViewModel : ViewModelBase
                     LoginErrorMessage = null;
                 });
 
+                // Сохраняем токен для автоматического входа
+                SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email);
+
                 Console.WriteLine("[RegisterAsync] Регистрация успешна!");
 
                 // Проверяем установку
                 CheckInstallation();
                 await CheckModpackVersionAsync();
+                await LoadProfileAsync();
             }
             else
             {
@@ -553,11 +697,15 @@ public class MainWindowViewModel : ViewModelBase
                     LoginErrorMessage = null;
                 });
 
+                // Сохраняем токен для автоматического входа
+                SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email);
+
                 Console.WriteLine("[LoginAsync] Вход успешен!");
 
                 // Проверяем установку
                 CheckInstallation();
                 await CheckModpackVersionAsync();
+                await LoadProfileAsync();
             }
             else
             {
@@ -773,5 +921,97 @@ public class MainWindowViewModel : ViewModelBase
             StatusMessage = "Minecraft установлен. Нажмите 'Проверить файлы' для установки Forge.";
         else
             StatusMessage = "Требуется установка Minecraft 1.20.1 Forge";
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        try
+        {
+            var result = await _apiService.GetProfileAsync();
+            if (result.IsSuccess && result.Data != null)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    PlayTimeMinutes = result.Data.PlayTimeMinutes;
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadProfile] Ошибка: {ex.Message}");
+        }
+    }
+
+    private void StartEditNickname()
+    {
+        NewNickname = Username;
+        IsEditingNickname = true;
+    }
+
+    private void CancelEditNickname()
+    {
+        IsEditingNickname = false;
+        NewNickname = "";
+        LoginErrorMessage = null;
+    }
+
+    private async Task SaveNicknameAsync()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(NewNickname))
+            {
+                LoginErrorMessage = "Введите новый никнейм";
+                return;
+            }
+
+            if (NewNickname.Length < 3 || NewNickname.Length > 16)
+            {
+                LoginErrorMessage = "Никнейм должен быть от 3 до 16 символов";
+                return;
+            }
+
+            StatusMessage = "Изменение никнейма...";
+            var result = await _apiService.ChangeUsernameAsync(NewNickname);
+
+            if (result.IsSuccess)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    Username = NewNickname;
+                    IsEditingNickname = false;
+                    NewNickname = "";
+                    LoginErrorMessage = null;
+                    StatusMessage = "Никнейм успешно изменен!";
+                });
+
+                // Обновляем сохраненный токен с новым никнеймом
+                var tokenFile = GetTokenFilePath();
+                if (File.Exists(tokenFile))
+                {
+                    var data = File.ReadAllText(tokenFile).Split('|');
+                    if (data.Length == 3)
+                    {
+                        SaveToken(data[0], Username, data[2]);
+                    }
+                }
+            }
+            else
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка смены никнейма";
+                    StatusMessage = "Ошибка смены никнейма";
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                LoginErrorMessage = $"Ошибка: {ex.Message}";
+                StatusMessage = "Ошибка смены никнейма";
+            });
+        }
     }
 }

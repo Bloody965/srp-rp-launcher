@@ -499,4 +499,151 @@ public class AuthController : ControllerBase
         _context.AuditLogs.Add(log);
         await _context.SaveChangesAsync();
     }
+
+    [HttpPost("change-username")]
+    public async Task<ActionResult<AuthResponse>> ChangeUsername([FromBody] ChangeUsernameRequest request)
+    {
+        var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
+        var principal = _jwtService.ValidateToken(token);
+
+        if (principal == null)
+        {
+            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+        }
+
+        var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+        }
+
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
+        }
+
+        // Проверка нового никнейма
+        if (string.IsNullOrWhiteSpace(request.NewUsername) || request.NewUsername.Length < 3 || request.NewUsername.Length > 16)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Никнейм должен быть от 3 до 16 символов" });
+        }
+
+        // Проверка что никнейм не занят
+        var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == request.NewUsername);
+        if (existingUser != null)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Этот никнейм уже занят" });
+        }
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        await LogAction(userId, "USERNAME_CHANGED", $"Old: {user.Username}, New: {request.NewUsername}", ip);
+
+        user.Username = request.NewUsername;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Message = "Никнейм успешно изменен",
+            User = new UserInfo
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                MinecraftUUID = user.MinecraftUUID,
+                IsWhitelisted = user.IsWhitelisted
+            }
+        });
+    }
+
+    [HttpPost("update-playtime")]
+    public async Task<ActionResult<AuthResponse>> UpdatePlayTime([FromBody] UpdatePlayTimeRequest request)
+    {
+        var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
+        var principal = _jwtService.ValidateToken(token);
+
+        if (principal == null)
+        {
+            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+        }
+
+        var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+        }
+
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
+        }
+
+        user.PlayTimeMinutes += request.MinutesPlayed;
+        user.LastPlayTimeUpdate = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Message = "Игровое время обновлено"
+        });
+    }
+
+    [HttpGet("profile")]
+    public async Task<ActionResult<ProfileResponse>> GetProfile()
+    {
+        var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
+        var principal = _jwtService.ValidateToken(token);
+
+        if (principal == null)
+        {
+            return Unauthorized(new { success = false, message = "Недействительный токен" });
+        }
+
+        var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { success = false, message = "Недействительный токен" });
+        }
+
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            return NotFound(new { success = false, message = "Пользователь не найден" });
+        }
+
+        return Ok(new ProfileResponse
+        {
+            Success = true,
+            Username = user.Username,
+            Email = user.Email,
+            PlayTimeMinutes = user.PlayTimeMinutes,
+            CreatedAt = user.CreatedAt,
+            LastLoginAt = user.LastLoginAt
+        });
+    }
+}
+
+// Request/Response DTOs
+public class ChangeUsernameRequest
+{
+    public string NewUsername { get; set; } = string.Empty;
+}
+
+public class UpdatePlayTimeRequest
+{
+    public int MinutesPlayed { get; set; }
+}
+
+public class ProfileResponse
+{
+    public bool Success { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public int PlayTimeMinutes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
 }

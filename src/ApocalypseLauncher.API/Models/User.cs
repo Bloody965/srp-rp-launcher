@@ -39,4 +39,10 @@ public class User
     [Required]
     [MaxLength(36)]
     public string MinecraftUUID { get; set; } = string.Empty;
+
+    // Игровое время в минутах
+    public int PlayTimeMinutes { get; set; } = 0;
+
+    // Последнее обновление игрового времени
+    public DateTime? LastPlayTimeUpdate { get; set; }
 }
