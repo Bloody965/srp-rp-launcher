@@ -176,6 +176,49 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _playTimeFormatted, value);
     }
 
+    private bool _isServerOnline = false;
+    public bool IsServerOnline
+    {
+        get => _isServerOnline;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isServerOnline, value);
+            this.RaisePropertyChanged(nameof(ServerStatusText));
+            this.RaisePropertyChanged(nameof(ServerStatusColor));
+        }
+    }
+
+    private int _playersOnline = 0;
+    public int PlayersOnline
+    {
+        get => _playersOnline;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _playersOnline, value);
+            this.RaisePropertyChanged(nameof(ServerStatusText));
+        }
+    }
+
+    private int _maxPlayers = 100;
+    public int MaxPlayers
+    {
+        get => _maxPlayers;
+        set => this.RaiseAndSetIfChanged(ref _maxPlayers, value);
+    }
+
+    public string ServerStatusText => IsServerOnline
+        ? $"🟢 Онлайн • {PlayersOnline}/{MaxPlayers} игроков"
+        : "🔴 Офлайн";
+
+    public string ServerStatusColor => IsServerOnline ? "#53dc96" : "#ff6a4a";
+
+    private string _aboutProjectText = "Информация о проекте будет добавлена позже.";
+    public string AboutProjectText
+    {
+        get => _aboutProjectText;
+        set => this.RaiseAndSetIfChanged(ref _aboutProjectText, value);
+    }
+
     private int _playTimeMinutes = 0;
     public int PlayTimeMinutes
     {
@@ -623,6 +666,7 @@ public class MainWindowViewModel : ViewModelBase
                 CheckInstallation();
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
+                await LoadServerStatusAsync();
             }
             else
             {
@@ -706,6 +750,7 @@ public class MainWindowViewModel : ViewModelBase
                 CheckInstallation();
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
+                await LoadServerStatusAsync();
             }
             else
             {
@@ -939,6 +984,27 @@ public class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             Console.WriteLine($"[LoadProfile] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task LoadServerStatusAsync()
+    {
+        try
+        {
+            var result = await _apiService.GetServerStatusAsync();
+            if (result.IsSuccess && result.Data != null)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    IsServerOnline = result.Data.IsOnline;
+                    PlayersOnline = result.Data.PlayersOnline;
+                    MaxPlayers = result.Data.MaxPlayers;
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadServerStatus] Ошибка: {ex.Message}");
         }
     }
 

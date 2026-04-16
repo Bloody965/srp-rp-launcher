@@ -167,24 +167,21 @@
                                     <TextBlock Text="SRP-RP" Classes="heroTitle"/>
                                     <TextBlock Text="POST-APOCALYPSE RESIDENT RP" Classes="sectionLead"/>
                                     <TextBlock Text="{Binding ModpackVersion}" Classes="versionBadge"/>
+
+                                    <!-- Статус сервера -->
+                                    <Border Background="#1a1410" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
+                                        <TextBlock Text="{Binding ServerStatusText}" FontSize="15" FontWeight="SemiBold" Foreground="{Binding ServerStatusColor}"/>
+                                    </Border>
                                 </StackPanel>
 
-                                <TextBlock Grid.Row="2" Text="Главный центр управления сборкой. Все основные действия вынесены в правую панель, а статус установки и обновления отображается отдельно без перегруза интерфейса." Classes="bodyText" TextWrapping="Wrap" MaxWidth="580"/>
+                                <TextBlock Grid.Row="2" Text="{Binding AboutProjectText}" Classes="bodyText" TextWrapping="Wrap" MaxWidth="580"/>
 
-                                <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="14" Margin="0,10,0,0">
+                                <Grid Grid.Row="3" ColumnDefinitions="*" ColumnSpacing="14" Margin="0,10,0,0">
                                     <Border Grid.Column="0" Classes="infoCard" Padding="18">
                                         <StackPanel Spacing="8">
-                                            <TextBlock Text="СТАТУС" Classes="microLabel"/>
-                                            <TextBlock Text="Готовность к запуску" FontSize="20" FontWeight="Bold"/>
-                                            <TextBlock Text="Установка, проверка файлов и обновление отделены друг от друга для более понятной навигации." Classes="captionText" TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border Grid.Column="1" Classes="infoCard" Padding="18">
-                                        <StackPanel Spacing="8">
-                                            <TextBlock Text="ПРОЕКТ" Classes="microLabel"/>
-                                            <TextBlock Text="SRP-RP Client" FontSize="20" FontWeight="Bold"/>
-                                            <TextBlock Text="Интерфейс собран так, чтобы не разваливаться по тексту даже при изменении размеров окна." Classes="captionText" TextWrapping="Wrap"/>
+                                            <TextBlock Text="О ПРОЕКТЕ" Classes="microLabel"/>
+                                            <TextBlock Text="SRP-RP Launcher" FontSize="20" FontWeight="Bold"/>
+                                            <TextBlock Text="Официальный лаунчер для подключения к серверу. Автоматическая установка модов, обновлений и управление профилем." Classes="captionText" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
                                 </Grid>

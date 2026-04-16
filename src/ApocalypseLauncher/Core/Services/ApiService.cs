@@ -294,6 +294,36 @@ public class ApiService
             return ApiResponse<bool>.Failure($"Ошибка: {ex.Message}");
         }
     }
+
+    public async Task<ApiResponse<ServerStatus>> GetServerStatusAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/server/status");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ServerStatusDto>();
+                if (result != null)
+                {
+                    return ApiResponse<ServerStatus>.Success(new ServerStatus
+                    {
+                        IsOnline = result.IsOnline,
+                        PlayersOnline = result.PlayersOnline,
+                        MaxPlayers = result.MaxPlayers,
+                        ServerVersion = result.ServerVersion,
+                        Motd = result.Motd
+                    });
+                }
+            }
+
+            return ApiResponse<ServerStatus>.Failure("Не удалось получить статус сервера");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<ServerStatus>.Failure($"Ошибка: {ex.Message}");
+        }
+    }
 }
 
 // DTOs
@@ -333,6 +363,15 @@ public class ModpackInfoDto
     public string? Changelog { get; set; }
 }
 
+public class ServerStatusDto
+{
+    public bool IsOnline { get; set; }
+    public int PlayersOnline { get; set; }
+    public int MaxPlayers { get; set; }
+    public string ServerVersion { get; set; } = "";
+    public string Motd { get; set; } = "";
+}
+
 // Response wrapper
 public class ApiResponse<T>
 {
@@ -362,4 +401,14 @@ public class ProfileInfo
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+}
+
+// ServerStatus model
+public class ServerStatus
+{
+    public bool IsOnline { get; set; }
+    public int PlayersOnline { get; set; }
+    public int MaxPlayers { get; set; }
+    public string ServerVersion { get; set; } = "";
+    public string Motd { get; set; } = "";
 }
