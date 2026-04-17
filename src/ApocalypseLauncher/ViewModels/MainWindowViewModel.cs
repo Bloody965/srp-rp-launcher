@@ -785,24 +785,18 @@ public class MainWindowViewModel : ViewModelBase
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    IsLoggedIn = true;
-                    CurrentView = "Main";
-                    StatusMessage = $"Регистрация успешна! КОД ВОССТАНОВЛЕНИЯ: {recoveryCode}";
-                    Username = result.Data.Username;
-                    UserEmail = result.Data.Email ?? "";
-                    LoginErrorMessage = $"✅ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ: {recoveryCode}\n\nОн понадобится для сброса пароля!";
+                    // НЕ входим сразу - показываем код на экране входа
+                    IsLoggedIn = false;
+                    IsRegistering = false;
+                    CurrentView = "Login";
+                    Username = "";
+                    Password = "";
+                    LoginErrorMessage = $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n🔑 ВАШ КОД ВОССТАНОВЛЕНИЯ:\n{recoveryCode}\n\n⚠️ СОХРАНИТЕ ЕГО СЕЙЧАС!\nОн понадобится для восстановления пароля.\nКод больше не будет показан!";
+                    StatusMessage = $"Регистрация завершена. Войдите в систему.";
                 });
 
-                // Сохраняем токен для автоматического входа
-                SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email ?? "");
-
                 Console.WriteLine($"[RegisterAsync] Регистрация успешна! Recovery code: {recoveryCode}");
-
-                // Проверяем установку
-                CheckInstallation();
-                await CheckModpackVersionAsync();
-                await LoadProfileAsync();
-                await LoadServerStatusAsync();
+                Console.WriteLine($"[RegisterAsync] Пользователь должен сохранить код и войти заново");
             }
             else
             {
