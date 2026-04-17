@@ -196,7 +196,8 @@
                                         </StackPanel>
 
                                         <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
-                                            <Button Grid.Column="0" Content="РЕГИСТРАЦИЯ" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50"/>
+                                            <Button Grid.Column="0" Content="РЕГИСТРАЦИЯ" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding !IsRegistering}"/>
+                                            <Button Grid.Column="0" Content="ВХОД" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding IsRegistering}"/>
                                             <Button Grid.Column="1" Content="СБРОС ПАРОЛЯ" Command="{Binding ResetPasswordCommand}" Classes="ghostButton" Height="50"/>
                                         </Grid>
                                     </StackPanel>
