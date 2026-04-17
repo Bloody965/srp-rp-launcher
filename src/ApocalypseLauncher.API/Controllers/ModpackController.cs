@@ -9,6 +9,8 @@ using System.Text;
 
 namespace ApocalypseLauncher.API.Controllers;
 
+// ОТКЛЮЧЕН - используется SimpleModpackController
+/*
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
@@ -161,3 +163,4 @@ public class VerifyModpackRequest
     public string Version { get; set; } = string.Empty;
     public string SHA256Hash { get; set; } = string.Empty;
 }
+*/

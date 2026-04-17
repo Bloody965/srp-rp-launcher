@@ -18,6 +18,8 @@ public class MainWindowViewModel : ViewModelBase
     private readonly AudioService _audioService;
     private ModpackUpdater _modpackUpdater;
     private readonly ApiService _apiService;
+    private readonly LauncherUpdateService _updateService;
+    private SkinService _skinService;
     private string _minecraftDirectory;
 
     public MainWindowViewModel()
@@ -31,6 +33,8 @@ public class MainWindowViewModel : ViewModelBase
         _audioService = new AudioService();
         _apiService = new ApiService("https://srp-rp-launcher-production.up.railway.app");
         _modpackUpdater = new ModpackUpdater(_minecraftDirectory, _apiService);
+        _updateService = new LauncherUpdateService();
+        _skinService = new SkinService(_apiService, _minecraftDirectory);
 
         // Подписываемся на события
         _installer.StatusChanged += (s, status) => StatusMessage = status;
@@ -50,6 +54,8 @@ public class MainWindowViewModel : ViewModelBase
         _modpackUpdater.StatusChanged += (s, status) => StatusMessage = status;
         _modpackUpdater.ProgressChanged += (s, progress) => ProgressValue = progress;
 
+        _skinService.StatusChanged += (s, status) => StatusMessage = status;
+
         // Команды
         LoginCommand = ReactiveCommand.CreateFromTask(LoginAsync);
         RegisterCommand = ReactiveCommand.CreateFromTask(RegisterAsync);
@@ -59,6 +65,7 @@ public class MainWindowViewModel : ViewModelBase
                 (installed, running) => installed && !running));
         ChooseFolderCommand = ReactiveCommand.CreateFromTask(ChooseFolderAsync);
         UpdateModpackCommand = ReactiveCommand.CreateFromTask(UpdateModpackAsync);
+        UpdateLauncherCommand = ReactiveCommand.CreateFromTask(UpdateLauncherAsync);
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
         LogoutCommand = ReactiveCommand.Create(Logout);
         ResetPasswordCommand = ReactiveCommand.Create(ShowResetPassword);
@@ -68,9 +75,18 @@ public class MainWindowViewModel : ViewModelBase
         EditNicknameCommand = ReactiveCommand.Create(StartEditNickname);
         SaveNicknameCommand = ReactiveCommand.CreateFromTask(SaveNicknameAsync);
         CancelEditNicknameCommand = ReactiveCommand.Create(CancelEditNickname);
+        UploadSkinCommand = ReactiveCommand.CreateFromTask(UploadSkinAsync);
+        UploadCapeCommand = ReactiveCommand.CreateFromTask(UploadCapeAsync);
+        DeleteSkinCommand = ReactiveCommand.CreateFromTask(DeleteSkinAsync);
+
+        // Загружаем настройки RAM
+        LoadRamSettings();
 
         // Автоматический вход при запуске
         _ = TryAutoLoginAsync();
+
+        // Проверка обновлений лаунчера
+        _ = CheckForLauncherUpdatesAsync();
     }
 
     private string GetTokenFilePath()
@@ -79,6 +95,48 @@ public class MainWindowViewModel : ViewModelBase
         var launcherDir = Path.Combine(appData, "SRP-RP-Launcher");
         Directory.CreateDirectory(launcherDir);
         return Path.Combine(launcherDir, "session.dat");
+    }
+
+    private string GetRamSettingsFilePath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var launcherDir = Path.Combine(appData, "SRP-RP-Launcher");
+        Directory.CreateDirectory(launcherDir);
+        return Path.Combine(launcherDir, "ram.cfg");
+    }
+
+    private void SaveRamSettings()
+    {
+        try
+        {
+            File.WriteAllText(GetRamSettingsFilePath(), _allocatedRamGB.ToString());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SaveRamSettings] Ошибка: {ex.Message}");
+        }
+    }
+
+    private void LoadRamSettings()
+    {
+        try
+        {
+            var ramFile = GetRamSettingsFilePath();
+            if (File.Exists(ramFile))
+            {
+                var ramText = File.ReadAllText(ramFile);
+                if (int.TryParse(ramText, out int ram) && ram >= 2 && ram <= 16)
+                {
+                    _allocatedRamGB = ram;
+                    this.RaisePropertyChanged(nameof(AllocatedRamGB));
+                    this.RaisePropertyChanged(nameof(AllocatedRamText));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadRamSettings] Ошибка: {ex.Message}");
+        }
     }
 
     private void SaveToken(string token, string username, string email)
@@ -175,6 +233,20 @@ public class MainWindowViewModel : ViewModelBase
         get => _playTimeFormatted;
         set => this.RaiseAndSetIfChanged(ref _playTimeFormatted, value);
     }
+
+    private int _allocatedRamGB = 4;
+    public int AllocatedRamGB
+    {
+        get => _allocatedRamGB;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _allocatedRamGB, value);
+            this.RaisePropertyChanged(nameof(AllocatedRamText));
+            SaveRamSettings();
+        }
+    }
+
+    public string AllocatedRamText => $"{_allocatedRamGB} GB";
 
     private bool _isServerOnline = false;
     public bool IsServerOnline
@@ -289,8 +361,16 @@ public class MainWindowViewModel : ViewModelBase
     public bool ResetCodeSent
     {
         get => _resetCodeSent;
-        set => this.RaiseAndSetIfChanged(ref _resetCodeSent, value);
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _resetCodeSent, value);
+            this.RaisePropertyChanged(nameof(ResetPasswordDescription));
+        }
     }
+
+    public string ResetPasswordDescription => _resetCodeSent
+        ? "Код отправлен на вашу почту. Введите его ниже."
+        : "Укажите email для получения кода восстановления.";
 
     private string _resetCode = "";
     public string ResetCode
@@ -306,11 +386,55 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _newPassword, value);
     }
 
+    private bool _hasLauncherUpdate;
+    public bool HasLauncherUpdate
+    {
+        get => _hasLauncherUpdate;
+        set => this.RaiseAndSetIfChanged(ref _hasLauncherUpdate, value);
+    }
+
+    private string _latestLauncherVersion = "";
+    public string LatestLauncherVersion
+    {
+        get => _latestLauncherVersion;
+        set => this.RaiseAndSetIfChanged(ref _latestLauncherVersion, value);
+    }
+
+    private string _launcherUpdateUrl = "";
+
     private bool _isFullscreen;
     public bool IsFullscreen
     {
         get => _isFullscreen;
         set => this.RaiseAndSetIfChanged(ref _isFullscreen, value);
+    }
+
+    private bool _isClassicSkin = true;
+    public bool IsClassicSkin
+    {
+        get => _isClassicSkin;
+        set => this.RaiseAndSetIfChanged(ref _isClassicSkin, value);
+    }
+
+    private bool _isSlimSkin = false;
+    public bool IsSlimSkin
+    {
+        get => _isSlimSkin;
+        set => this.RaiseAndSetIfChanged(ref _isSlimSkin, value);
+    }
+
+    private string _skinStatus = "Скин не загружен";
+    public string SkinStatus
+    {
+        get => _skinStatus;
+        set => this.RaiseAndSetIfChanged(ref _skinStatus, value);
+    }
+
+    private Avalonia.Media.Imaging.Bitmap? _currentSkinPreview;
+    public Avalonia.Media.Imaging.Bitmap? CurrentSkinPreview
+    {
+        get => _currentSkinPreview;
+        set => this.RaiseAndSetIfChanged(ref _currentSkinPreview, value);
     }
 
     private bool _isLoggedIn;
@@ -375,6 +499,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> LaunchCommand { get; }
     public ReactiveCommand<Unit, Unit> ChooseFolderCommand { get; }
     public ReactiveCommand<Unit, Unit> UpdateModpackCommand { get; }
+    public ReactiveCommand<Unit, Unit> UpdateLauncherCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleRegisterCommand { get; }
     public ReactiveCommand<Unit, Unit> LogoutCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetPasswordCommand { get; }
@@ -384,6 +509,9 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> EditNicknameCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveNicknameCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelEditNicknameCommand { get; }
+    public ReactiveCommand<Unit, Unit> UploadSkinCommand { get; }
+    public ReactiveCommand<Unit, Unit> UploadCapeCommand { get; }
+    public ReactiveCommand<Unit, Unit> DeleteSkinCommand { get; }
 
     private async Task ChooseFolderAsync()
     {
@@ -878,13 +1006,14 @@ public class MainWindowViewModel : ViewModelBase
                 Console.WriteLine("[InstallMinecraftAsync] Minecraft installed, installing Forge...");
                 StatusMessage = "Установка Forge...";
 
+                bool forgeSuccess = false;
                 try
                 {
-                    var forgeSuccess = await _installer.InstallForgeAsync();
+                    forgeSuccess = await _installer.InstallForgeAsync();
                     if (forgeSuccess)
                     {
                         Console.WriteLine("[InstallMinecraftAsync] Forge installed successfully!");
-                        StatusMessage = "Forge установлен! Готов к запуску.";
+                        StatusMessage = "Forge установлен!";
                     }
                     else
                     {
@@ -897,6 +1026,40 @@ public class MainWindowViewModel : ViewModelBase
                     Console.WriteLine($"[InstallMinecraftAsync] Forge installation exception: {forgeEx.Message}");
                     Console.WriteLine($"Stack trace: {forgeEx.StackTrace}");
                     StatusMessage = $"Ошибка Forge: {forgeEx.Message}. Игра будет в vanilla режиме.";
+                }
+
+                // Скачиваем модпак после установки Forge
+                if (forgeSuccess)
+                {
+                    Console.WriteLine("[InstallMinecraftAsync] Downloading modpack...");
+                    StatusMessage = "Скачивание сборки модов...";
+                    ProgressValue = 0;
+
+                    try
+                    {
+                        var modpackSuccess = await _modpackUpdater.DownloadAndInstallModpackAsync();
+                        if (modpackSuccess)
+                        {
+                            Console.WriteLine("[InstallMinecraftAsync] Modpack installed successfully!");
+                            StatusMessage = "Установка завершена! Готов к запуску.";
+                            await CheckModpackVersionAsync();
+                        }
+                        else
+                        {
+                            Console.WriteLine("[InstallMinecraftAsync] Modpack installation failed!");
+                            StatusMessage = "Ошибка установки сборки. Используйте кнопку 'Обновить сборку'.";
+                        }
+                    }
+                    catch (Exception modpackEx)
+                    {
+                        Console.WriteLine($"[InstallMinecraftAsync] Modpack installation exception: {modpackEx.Message}");
+                        Console.WriteLine($"Stack trace: {modpackEx.StackTrace}");
+                        StatusMessage = $"Ошибка сборки: {modpackEx.Message}. Используйте кнопку 'Обновить сборку'.";
+                    }
+                }
+                else
+                {
+                    StatusMessage = "Forge не установлен. Сборка не будет загружена.";
                 }
 
                 IsInstalled = true;
@@ -930,6 +1093,10 @@ public class MainWindowViewModel : ViewModelBase
 
             // Устанавливаем полноэкранный режим
             launchOptions.IsFullscreen = IsFullscreen;
+
+            // Устанавливаем выделенную RAM
+            launchOptions.MaxMemory = _allocatedRamGB * 1024;
+            launchOptions.MinMemory = Math.Min(512, _allocatedRamGB * 512);
 
             // Извлекаем нативные библиотеки перед запуском
             StatusMessage = "Извлечение нативных библиотек...";
@@ -1078,6 +1245,283 @@ public class MainWindowViewModel : ViewModelBase
                 LoginErrorMessage = $"Ошибка: {ex.Message}";
                 StatusMessage = "Ошибка смены никнейма";
             });
+        }
+    }
+
+    private async Task CheckForLauncherUpdatesAsync()
+    {
+        try
+        {
+            await Task.Delay(2000); // Небольшая задержка после запуска
+
+            var (hasUpdate, latestVersion, downloadUrl) = await _updateService.CheckForUpdatesAsync();
+
+            if (hasUpdate)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    HasLauncherUpdate = true;
+                    LatestLauncherVersion = latestVersion;
+                    _launcherUpdateUrl = downloadUrl;
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CheckForLauncherUpdatesAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task UpdateLauncherAsync()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_launcherUpdateUrl))
+            {
+                StatusMessage = "Ошибка: URL обновления не найден";
+                return;
+            }
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                StatusMessage = "Обновление лаунчера...";
+            });
+
+            _updateService.StatusChanged += (s, status) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    StatusMessage = status;
+                });
+            };
+
+            _updateService.ProgressChanged += (s, progress) =>
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    ProgressValue = progress;
+                });
+            };
+
+            await _updateService.DownloadAndInstallUpdateAsync(_launcherUpdateUrl);
+        }
+        catch (Exception ex)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                StatusMessage = $"Ошибка обновления: {ex.Message}";
+            });
+            Console.WriteLine($"[UpdateLauncherAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    // Методы для работы со скинами
+    private async Task UploadSkinAsync()
+    {
+        try
+        {
+            SkinStatus = "Выберите PNG файл скина 64x64 пикселей";
+
+            // Открываем диалог выбора файла
+            var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions
+            {
+                Title = "Выберите файл скина (PNG 64x64)",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new Avalonia.Platform.Storage.FilePickerFileType("PNG изображения")
+                    {
+                        Patterns = new[] { "*.png" }
+                    }
+                }
+            };
+
+            var topLevel = Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+                ? desktop.MainWindow
+                : null;
+
+            if (topLevel == null)
+            {
+                SkinStatus = "Ошибка: не удалось получить окно";
+                return;
+            }
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(dialog);
+
+            if (files.Count == 0)
+            {
+                SkinStatus = "Выбор файла отменен";
+                return;
+            }
+
+            var filePath = files[0].Path.LocalPath;
+
+            // Валидация файла
+            if (!_skinService.ValidateSkinFile(filePath, out var error))
+            {
+                SkinStatus = $"Ошибка: {error}";
+                return;
+            }
+
+            SkinStatus = "Загрузка скина на сервер...";
+
+            var skinType = IsClassicSkin ? "classic" : "slim";
+            var success = await _skinService.UploadSkinAsync(filePath, skinType);
+
+            if (success)
+            {
+                SkinStatus = "Скин успешно загружен!";
+                await LoadSkinPreviewAsync(filePath);
+            }
+            else
+            {
+                SkinStatus = "Ошибка загрузки скина";
+            }
+        }
+        catch (Exception ex)
+        {
+            SkinStatus = $"Ошибка: {ex.Message}";
+            Console.WriteLine($"[UploadSkinAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    public async Task UploadSkinFromFileAsync(string filePath)
+    {
+        try
+        {
+            var skinType = IsClassicSkin ? "classic" : "slim";
+            var success = await _skinService.UploadSkinAsync(filePath, skinType);
+
+            if (success)
+            {
+                SkinStatus = $"Скин загружен ({skinType})";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Ошибка загрузки скина: {ex.Message}";
+            Console.WriteLine($"[UploadSkinFromFileAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task UploadCapeAsync()
+    {
+        try
+        {
+            SkinStatus = "Выберите PNG файл плаща 64x32 пикселей";
+
+            var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions
+            {
+                Title = "Выберите файл плаща (PNG 64x32)",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new Avalonia.Platform.Storage.FilePickerFileType("PNG изображения")
+                    {
+                        Patterns = new[] { "*.png" }
+                    }
+                }
+            };
+
+            var topLevel = Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
+                ? desktop.MainWindow
+                : null;
+
+            if (topLevel == null)
+            {
+                SkinStatus = "Ошибка: не удалось получить окно";
+                return;
+            }
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(dialog);
+
+            if (files.Count == 0)
+            {
+                SkinStatus = "Выбор файла отменен";
+                return;
+            }
+
+            var filePath = files[0].Path.LocalPath;
+
+            if (!_skinService.ValidateCapeFile(filePath, out var error))
+            {
+                SkinStatus = $"Ошибка: {error}";
+                return;
+            }
+
+            SkinStatus = "Загрузка плаща на сервер...";
+
+            var success = await _skinService.UploadCapeAsync(filePath);
+
+            if (success)
+            {
+                SkinStatus = "Плащ успешно загружен!";
+            }
+            else
+            {
+                SkinStatus = "Ошибка загрузки плаща";
+            }
+        }
+        catch (Exception ex)
+        {
+            SkinStatus = $"Ошибка: {ex.Message}";
+            Console.WriteLine($"[UploadCapeAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    public async Task UploadCapeFromFileAsync(string filePath)
+    {
+        try
+        {
+            var success = await _skinService.UploadCapeAsync(filePath);
+
+            if (success)
+            {
+                SkinStatus = "Плащ загружен";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Ошибка загрузки плаща: {ex.Message}";
+            Console.WriteLine($"[UploadCapeFromFileAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteSkinAsync()
+    {
+        try
+        {
+            SkinStatus = "Удаление скина...";
+
+            var success = await _skinService.DeleteCurrentSkinAsync();
+
+            if (success)
+            {
+                SkinStatus = "Скин удален";
+                CurrentSkinPreview = null;
+            }
+            else
+            {
+                SkinStatus = "Ошибка удаления скина";
+            }
+        }
+        catch (Exception ex)
+        {
+            SkinStatus = $"Ошибка удаления скина: {ex.Message}";
+            Console.WriteLine($"[DeleteSkinAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task LoadSkinPreviewAsync(string filePath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            CurrentSkinPreview = new Avalonia.Media.Imaging.Bitmap(stream);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка загрузки превью: {ex.Message}");
         }
     }
 }

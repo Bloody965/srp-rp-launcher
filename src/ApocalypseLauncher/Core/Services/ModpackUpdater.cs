@@ -125,19 +125,26 @@ public class ModpackUpdater
 
             Console.WriteLine($"[ModpackUpdater] Downloaded to: {tempZip}");
 
-            // Проверка SHA256 хеша
-            StatusChanged?.Invoke(this, "Проверка целостности файла...");
-            var fileHash = CalculateSHA256(tempZip);
-
-            if (!fileHash.Equals(modpackInfo.SHA256Hash, StringComparison.OrdinalIgnoreCase))
+            // Проверка SHA256 хеша (пропускаем если хеш = "skip")
+            if (!modpackInfo.SHA256Hash.Equals("skip", StringComparison.OrdinalIgnoreCase))
             {
-                StatusChanged?.Invoke(this, "Ошибка: файл поврежден!");
-                Console.WriteLine($"[ModpackUpdater] Hash mismatch! Expected: {modpackInfo.SHA256Hash}, Got: {fileHash}");
-                try { File.Delete(tempZip); } catch { }
-                return false;
-            }
+                StatusChanged?.Invoke(this, "Проверка целостности файла...");
+                var fileHash = CalculateSHA256(tempZip);
 
-            Console.WriteLine("[ModpackUpdater] Hash verified successfully");
+                if (!fileHash.Equals(modpackInfo.SHA256Hash, StringComparison.OrdinalIgnoreCase))
+                {
+                    StatusChanged?.Invoke(this, "Ошибка: файл поврежден!");
+                    Console.WriteLine($"[ModpackUpdater] Hash mismatch! Expected: {modpackInfo.SHA256Hash}, Got: {fileHash}");
+                    try { File.Delete(tempZip); } catch { }
+                    return false;
+                }
+
+                Console.WriteLine("[ModpackUpdater] Hash verified successfully");
+            }
+            else
+            {
+                Console.WriteLine("[ModpackUpdater] Hash verification skipped");
+            }
 
             // Удаляем старые моды и конфиги
             StatusChanged?.Invoke(this, "Удаление старых файлов...");

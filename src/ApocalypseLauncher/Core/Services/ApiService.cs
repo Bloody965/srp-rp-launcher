@@ -324,6 +324,167 @@ public class ApiService
             return ApiResponse<ServerStatus>.Failure($"Ошибка: {ex.Message}");
         }
     }
+
+    // Skins API
+    public async Task<ApiResponse<SkinInfo>> UploadSkinAsync(byte[] skinData, string skinType)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(skinData);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            content.Add(fileContent, "skin", "skin.png");
+            content.Add(new StringContent(skinType), "skinType");
+
+            var response = await _httpClient.PostAsync("/api/skins/upload", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<SkinUploadResponse>();
+                if (result?.Success == true && result.Skin != null)
+                {
+                    return ApiResponse<SkinInfo>.Success(new SkinInfo
+                    {
+                        SkinType = result.Skin.SkinType,
+                        DownloadUrl = result.Skin.DownloadUrl,
+                        FileHash = result.Skin.FileHash,
+                        UploadedAt = result.Skin.UploadedAt
+                    });
+                }
+                return ApiResponse<SkinInfo>.Failure(result?.Message ?? "Ошибка загрузки скина");
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<SkinUploadResponse>();
+            return ApiResponse<SkinInfo>.Failure(error?.Message ?? "Ошибка загрузки скина");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<SkinInfo>.Failure($"Ошибка подключения: {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResponse<SkinInfo>> GetCurrentSkinAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/skins/current");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<SkinResponse>();
+                if (result?.Success == true && result.Skin != null)
+                {
+                    return ApiResponse<SkinInfo>.Success(new SkinInfo
+                    {
+                        SkinType = result.Skin.SkinType,
+                        DownloadUrl = result.Skin.DownloadUrl,
+                        FileHash = result.Skin.FileHash,
+                        UploadedAt = result.Skin.UploadedAt
+                    });
+                }
+            }
+
+            return ApiResponse<SkinInfo>.Failure("Скин не найден");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<SkinInfo>.Failure($"Ошибка: {ex.Message}");
+        }
+    }
+
+    public async Task<byte[]?> DownloadSkinAsync(int userId)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/skins/download/{userId}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ApiService] Error downloading skin: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<ApiResponse<bool>> DeleteCurrentSkinAsync()
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync("/api/skins/current");
+
+            if (response.IsSuccessStatusCode)
+            {
+                return ApiResponse<bool>.Success(true);
+            }
+
+            return ApiResponse<bool>.Failure("Ошибка удаления скина");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<bool>.Failure($"Ошибка: {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResponse<CapeInfo>> UploadCapeAsync(byte[] capeData)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            var fileContent = new ByteArrayContent(capeData);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            content.Add(fileContent, "cape", "cape.png");
+
+            var response = await _httpClient.PostAsync("/api/skins/capes/upload", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<CapeUploadResponse>();
+                if (result?.Success == true && result.Cape != null)
+                {
+                    return ApiResponse<CapeInfo>.Success(new CapeInfo
+                    {
+                        DownloadUrl = result.Cape.DownloadUrl,
+                        FileHash = result.Cape.FileHash,
+                        UploadedAt = result.Cape.UploadedAt
+                    });
+                }
+                return ApiResponse<CapeInfo>.Failure(result?.Message ?? "Ошибка загрузки плаща");
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<CapeUploadResponse>();
+            return ApiResponse<CapeInfo>.Failure(error?.Message ?? "Ошибка загрузки плаща");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<CapeInfo>.Failure($"Ошибка подключения: {ex.Message}");
+        }
+    }
+
+    public async Task<byte[]?> DownloadCapeAsync(int userId)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/skins/capes/download/{userId}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ApiService] Error downloading cape: {ex.Message}");
+            return null;
+        }
+    }
 }
 
 // DTOs
@@ -411,4 +572,58 @@ public class ServerStatus
     public int MaxPlayers { get; set; }
     public string ServerVersion { get; set; } = "";
     public string Motd { get; set; } = "";
+}
+
+// SkinInfo model
+public class SkinInfo
+{
+    public string SkinType { get; set; } = "";
+    public string DownloadUrl { get; set; } = "";
+    public string FileHash { get; set; } = "";
+    public DateTime UploadedAt { get; set; }
+}
+
+// CapeInfo model
+public class CapeInfo
+{
+    public string DownloadUrl { get; set; } = "";
+    public string FileHash { get; set; } = "";
+    public DateTime UploadedAt { get; set; }
+}
+
+// Skin DTOs
+public class SkinUploadResponse
+{
+    public bool Success { get; set; }
+    public string? Message { get; set; }
+    public SkinDto? Skin { get; set; }
+}
+
+public class SkinResponse
+{
+    public bool Success { get; set; }
+    public SkinDto? Skin { get; set; }
+}
+
+public class SkinDto
+{
+    public string SkinType { get; set; } = "";
+    public string DownloadUrl { get; set; } = "";
+    public string FileHash { get; set; } = "";
+    public DateTime UploadedAt { get; set; }
+}
+
+// Cape DTOs
+public class CapeUploadResponse
+{
+    public bool Success { get; set; }
+    public string? Message { get; set; }
+    public CapeDto? Cape { get; set; }
+}
+
+public class CapeDto
+{
+    public string DownloadUrl { get; set; } = "";
+    public string FileHash { get; set; } = "";
+    public DateTime UploadedAt { get; set; }
 }

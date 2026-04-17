@@ -73,6 +73,7 @@ builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddSingleton<MinecraftServerService>();
+builder.Services.AddSingleton<SkinValidationService>();
 
 // Controllers
 builder.Services.AddControllers();
