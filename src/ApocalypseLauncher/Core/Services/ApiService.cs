@@ -194,11 +194,11 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<string>> ResetPasswordAsync(string email, string code, string newPassword)
+    public async Task<ApiResponse<string>> ResetPasswordAsync(string username, string recoveryCode, string newPassword)
     {
         try
         {
-            var request = new { email, code, newPassword };
+            var request = new { username, recoveryCode, newPassword };
             var response = await _httpClient.PostAsJsonAsync("/api/auth/reset-password", request);
 
             if (response.IsSuccessStatusCode)

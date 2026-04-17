@@ -165,11 +165,6 @@
                                             <TextBox Text="{Binding Username}" Watermark="Введите ваше имя" Height="54" FontSize="15"/>
                                         </StackPanel>
 
-                                        <StackPanel Spacing="10" IsVisible="{Binding IsRegistering}">
-                                            <TextBlock Text="EMAIL" Classes="fieldLabel"/>
-                                            <TextBox Text="{Binding Email}" Watermark="Введите email" Height="54" FontSize="15"/>
-                                        </StackPanel>
-
                                         <StackPanel Spacing="10">
                                             <TextBlock Text="ПАРОЛЬ" Classes="fieldLabel"/>
                                             <TextBox Text="{Binding Password}" Watermark="Введите пароль" PasswordChar="●" Height="54" FontSize="15"/>
@@ -192,22 +187,22 @@
 
                                     <StackPanel Spacing="22" IsVisible="{Binding IsResettingPassword}">
                                         <StackPanel Spacing="6">
-                                            <TextBlock Text="ВОССТАНОВЛЕНИЕ КАНАЛА" Classes="microLabel"/>
+                                            <TextBlock Text="ВОССТАНОВЛЕНИЕ ДОСТУПА" Classes="microLabel"/>
                                             <TextBlock Text="Сброс пароля" Classes="formTitle"/>
-                                            <TextBlock Text="{Binding ResetPasswordDescription}" Classes="captionText" TextWrapping="Wrap"/>
+                                            <TextBlock Text="Введите имя пользователя и код восстановления, который вы получили при регистрации" Classes="captionText" TextWrapping="Wrap"/>
                                         </StackPanel>
 
                                         <StackPanel Spacing="10">
-                                            <TextBlock Text="EMAIL" Classes="fieldLabel"/>
-                                            <TextBox Text="{Binding Email}" Watermark="Введите email" Height="54" FontSize="15" IsEnabled="{Binding !ResetCodeSent}"/>
+                                            <TextBlock Text="ИМЯ ПОЛЬЗОВАТЕЛЯ" Classes="fieldLabel"/>
+                                            <TextBox Text="{Binding Username}" Watermark="Введите имя пользователя" Height="54" FontSize="15"/>
                                         </StackPanel>
 
-                                        <StackPanel Spacing="10" IsVisible="{Binding ResetCodeSent}">
-                                            <TextBlock Text="КОД ИЗ ПИСЬМА" Classes="fieldLabel"/>
-                                            <TextBox Text="{Binding ResetCode}" Watermark="Введите 6-значный код" Height="54" FontSize="15" MaxLength="6"/>
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="КОД ВОССТАНОВЛЕНИЯ" Classes="fieldLabel"/>
+                                            <TextBox Text="{Binding RecoveryCode}" Watermark="Введите 16-значный код" Height="54" FontSize="15" MaxLength="16"/>
                                         </StackPanel>
 
-                                        <StackPanel Spacing="10" IsVisible="{Binding ResetCodeSent}">
+                                        <StackPanel Spacing="10">
                                             <TextBlock Text="НОВЫЙ ПАРОЛЬ" Classes="fieldLabel"/>
                                             <TextBox Text="{Binding NewPassword}" Watermark="Введите новый пароль" PasswordChar="●" Height="54" FontSize="15"/>
                                         </StackPanel>

@@ -330,6 +330,20 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _password, value);
     }
 
+    private string _recoveryCode = "";
+    public string RecoveryCode
+    {
+        get => _recoveryCode;
+        set => this.RaiseAndSetIfChanged(ref _recoveryCode, value);
+    }
+
+    private string _newPassword = "";
+    public string NewPassword
+    {
+        get => _newPassword;
+        set => this.RaiseAndSetIfChanged(ref _newPassword, value);
+    }
+
     private string? _loginErrorMessage;
     public string? LoginErrorMessage
     {
@@ -377,13 +391,6 @@ public class MainWindowViewModel : ViewModelBase
     {
         get => _resetCode;
         set => this.RaiseAndSetIfChanged(ref _resetCode, value);
-    }
-
-    private string _newPassword = "";
-    public string NewPassword
-    {
-        get => _newPassword;
-        set => this.RaiseAndSetIfChanged(ref _newPassword, value);
     }
 
     private bool _hasLauncherUpdate;
@@ -668,11 +675,20 @@ public class MainWindowViewModel : ViewModelBase
                 LoginErrorMessage = null;
             });
 
-            if (string.IsNullOrWhiteSpace(ResetCode))
+            if (string.IsNullOrWhiteSpace(Username))
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите код из письма!";
+                    LoginErrorMessage = "Введите имя пользователя!";
+                });
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(RecoveryCode))
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    LoginErrorMessage = "Введите код восстановления!";
                 });
                 return;
             }
@@ -687,16 +703,15 @@ public class MainWindowViewModel : ViewModelBase
             }
 
             StatusMessage = "Сброс пароля...";
-            var result = await _apiService.ResetPasswordAsync(Email, ResetCode, NewPassword);
+            var result = await _apiService.ResetPasswordAsync(Username, RecoveryCode, NewPassword);
 
             if (result.IsSuccess)
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     IsResettingPassword = false;
-                    ResetCodeSent = false;
-                    Email = "";
-                    ResetCode = "";
+                    Username = "";
+                    RecoveryCode = "";
                     NewPassword = "";
                     LoginErrorMessage = null;
                     StatusMessage = "Пароль изменен! Войдите с новым паролем.";
