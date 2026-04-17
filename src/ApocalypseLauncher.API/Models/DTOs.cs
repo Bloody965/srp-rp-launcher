@@ -3,7 +3,6 @@ namespace ApocalypseLauncher.API.Models;
 public class RegisterRequest
 {
     public string Username { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
 }
 
@@ -13,15 +12,10 @@ public class LoginRequest
     public string Password { get; set; } = string.Empty;
 }
 
-public class RequestResetCodeRequest
-{
-    public string Email { get; set; } = string.Empty;
-}
-
 public class ResetPasswordRequest
 {
-    public string Email { get; set; } = string.Empty;
-    public string Code { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string RecoveryCode { get; set; } = string.Empty;
     public string NewPassword { get; set; } = string.Empty;
 }
 
@@ -31,13 +25,14 @@ public class AuthResponse
     public string? Token { get; set; }
     public string? Message { get; set; }
     public UserInfo? User { get; set; }
+    public string? RecoveryCode { get; set; } // Возвращается только при регистрации
 }
 
 public class UserInfo
 {
     public int Id { get; set; }
     public string Username { get; set; } = string.Empty;
-    public string Email { get; set; } = string.Empty;
+    public string? Email { get; set; }
     public string MinecraftUUID { get; set; } = string.Empty;
     public bool IsWhitelisted { get; set; }
 }

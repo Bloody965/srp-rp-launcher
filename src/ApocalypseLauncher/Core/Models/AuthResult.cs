@@ -12,4 +12,5 @@ public class AuthResult
     public string AccessToken { get; set; } = string.Empty;
     public bool IsOffline { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public string? RecoveryCode { get; set; } // Код восстановления (только при регистрации)
 }

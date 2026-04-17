@@ -41,10 +41,9 @@ public class AuthController : ControllerBase
 
         // Защита от SQL инъекций
         if (ValidationService.ContainsSqlInjection(request.Username) ||
-            ValidationService.ContainsSqlInjection(request.Email) ||
             ValidationService.ContainsSqlInjection(request.Password))
         {
-            await LogAction(null, "REGISTER_SQL_INJECTION_ATTEMPT", $"Username: {request.Username}, Email: {request.Email}", ip);
+            await LogAction(null, "REGISTER_SQL_INJECTION_ATTEMPT", $"Username: {request.Username}", ip);
             return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
         }
 
@@ -65,11 +64,6 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse { Success = false, Message = "Имя пользователя должно быть от 3 до 16 символов (только буквы, цифры и _)" });
         }
 
-        if (!ValidationService.IsValidEmail(request.Email))
-        {
-            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный email адрес" });
-        }
-
         var (isValid, error) = _passwordService.ValidatePasswordStrength(request.Password);
         if (!isValid)
         {
@@ -82,30 +76,29 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse { Success = false, Message = "Пользователь с таким именем уже существует" });
         }
 
-        if (await _context.Users.AnyAsync(u => u.Email.ToLower() == request.Email.ToLower()))
-        {
-            return BadRequest(new AuthResponse { Success = false, Message = "Email уже зарегистрирован" });
-        }
+        // Генерация кода восстановления (16 символов)
+        var recoveryCode = _passwordService.GenerateRecoveryCode();
 
         // Создание пользователя
         var user = new User
         {
             Username = request.Username,
-            Email = request.Email,
+            Email = null, // Не храним email
             PasswordHash = _passwordService.HashPassword(request.Password),
+            RecoveryCode = recoveryCode,
             MinecraftUUID = _passwordService.GenerateMinecraftUUID(request.Username),
             CreatedAt = DateTime.UtcNow,
             IsActive = true,
-            IsWhitelisted = false // По умолчанию не в whitelist
+            IsWhitelisted = false
         };
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        await LogAction(user.Id, "REGISTER", $"Username: {user.Username}, Email: {user.Email}", ip);
+        await LogAction(user.Id, "REGISTER", $"Username: {user.Username}", ip);
 
         // Генерация токена
-        var token = _jwtService.GenerateToken(user.Id, user.Username, user.Email);
+        var token = _jwtService.GenerateToken(user.Id, user.Username, user.Email ?? "");
 
         // Создание сессии
         var session = new LoginSession
@@ -126,7 +119,8 @@ public class AuthController : ControllerBase
         {
             Success = true,
             Token = token,
-            Message = "Регистрация успешна",
+            Message = "Регистрация успешна! СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ - он понадобится для сброса пароля!",
+            RecoveryCode = recoveryCode, // Показываем код только один раз
             User = new UserInfo
             {
                 Id = user.Id,
@@ -284,115 +278,17 @@ public class AuthController : ControllerBase
         });
     }
 
-    [HttpPost("request-reset-code")]
-    public async Task<ActionResult<AuthResponse>> RequestResetCode([FromBody] RequestResetCodeRequest request)
-    {
-        Console.WriteLine($"[RequestResetCode] Получен запрос на сброс пароля для email: {request.Email}");
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        // Защита от SQL инъекций
-        if (ValidationService.ContainsSqlInjection(request.Email))
-        {
-            Console.WriteLine($"[RequestResetCode] SQL инъекция обнаружена");
-            await LogAction(null, "RESET_CODE_SQL_INJECTION", $"Email: {request.Email}", ip);
-            return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
-        }
-
-        // Rate limiting - 3 попытки в час
-        if (_rateLimitService.IsRateLimited($"reset:{ip}", 3, TimeSpan.FromHours(1)))
-        {
-            Console.WriteLine($"[RequestResetCode] Rate limit превышен для IP: {ip}");
-            await LogAction(null, "RESET_CODE_RATE_LIMITED", $"IP: {ip}", ip);
-            return BadRequest(new AuthResponse
-            {
-                Success = false,
-                Message = "Слишком много попыток. Попробуйте через час."
-            });
-        }
-
-        // Валидация email
-        if (!ValidationService.IsValidEmail(request.Email))
-        {
-            Console.WriteLine($"[RequestResetCode] Неверный формат email: {request.Email}");
-            return BadRequest(new AuthResponse { Success = false, Message = "Неверный формат email" });
-        }
-
-        // Поиск пользователя по email
-        var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower());
-
-        if (user == null)
-        {
-            Console.WriteLine($"[RequestResetCode] Пользователь не найден для email: {request.Email}");
-            // Не раскрываем существование пользователя
-            await LogAction(null, "RESET_CODE_USER_NOT_FOUND", $"Email: {request.Email}, IP: {ip}", ip);
-            return Ok(new AuthResponse
-            {
-                Success = true,
-                Message = "Если email существует, код был отправлен на почту"
-            });
-        }
-
-        Console.WriteLine($"[RequestResetCode] Пользователь найден: {user.Username}, генерация кода...");
-
-        // Генерация 6-значного кода
-        var random = new Random();
-        var code = random.Next(100000, 999999).ToString();
-
-        Console.WriteLine($"[RequestResetCode] Код сгенерирован: {code}");
-
-        // Сохранение кода в базу
-        var resetCode = new PasswordResetCode
-        {
-            UserId = user.Id,
-            Code = code,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(15),
-            IsUsed = false
-        };
-
-        _context.PasswordResetCodes.Add(resetCode);
-        await _context.SaveChangesAsync();
-
-        Console.WriteLine($"[RequestResetCode] Код сохранен в БД, отправка email...");
-
-        // Отправка email
-        var emailSent = await _emailService.SendPasswordResetEmailAsync(user.Email, user.Username, code);
-
-        Console.WriteLine($"[RequestResetCode] Email отправлен: {emailSent}");
-
-        if (!emailSent)
-        {
-            await LogAction(user.Id, "RESET_CODE_EMAIL_FAILED", $"IP: {ip}", ip);
-            return StatusCode(500, new AuthResponse
-            {
-                Success = false,
-                Message = "Ошибка отправки email. Попробуйте позже."
-            });
-        }
-
-        await LogAction(user.Id, "RESET_CODE_SENT", $"IP: {ip}", ip);
-
-        Console.WriteLine($"[RequestResetCode] Успешно завершено");
-
-        return Ok(new AuthResponse
-        {
-            Success = true,
-            Message = "Код для сброса пароля отправлен на вашу почту"
-        });
-    }
-
     [HttpPost("reset-password")]
     public async Task<ActionResult<AuthResponse>> ResetPassword([FromBody] ResetPasswordRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         // Защита от SQL инъекций
-        if (ValidationService.ContainsSqlInjection(request.Email) ||
-            ValidationService.ContainsSqlInjection(request.NewPassword) ||
-            (request.Code != null && ValidationService.ContainsSqlInjection(request.Code)))
+        if (ValidationService.ContainsSqlInjection(request.Username) ||
+            ValidationService.ContainsSqlInjection(request.RecoveryCode) ||
+            ValidationService.ContainsSqlInjection(request.NewPassword))
         {
-            await LogAction(null, "RESET_PASSWORD_SQL_INJECTION", $"Email: {request.Email}", ip);
+            await LogAction(null, "RESET_PASSWORD_SQL_INJECTION", $"Username: {request.Username}", ip);
             return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
         }
 
@@ -407,16 +303,16 @@ public class AuthController : ControllerBase
             });
         }
 
-        // Валидация email
-        if (!ValidationService.IsValidEmail(request.Email))
+        // Валидация username
+        if (!ValidationService.IsValidUsername(request.Username))
         {
-            return BadRequest(new AuthResponse { Success = false, Message = "Неверный формат email" });
+            return BadRequest(new AuthResponse { Success = false, Message = "Неверное имя пользователя" });
         }
 
-        // Валидация кода
-        if (string.IsNullOrWhiteSpace(request.Code) || request.Code.Length != 6)
+        // Валидация recovery code
+        if (string.IsNullOrWhiteSpace(request.RecoveryCode) || request.RecoveryCode.Length < 16)
         {
-            return BadRequest(new AuthResponse { Success = false, Message = "Введите 6-значный код из письма" });
+            return BadRequest(new AuthResponse { Success = false, Message = "Введите код восстановления (16 символов)" });
         }
 
         // Валидация нового пароля
@@ -426,43 +322,24 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse { Success = false, Message = error });
         }
 
-        // Поиск пользователя по email
+        // Поиск пользователя по username и recovery code
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Email.ToLower() == request.Email.ToLower());
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower() &&
+                                     u.RecoveryCode == request.RecoveryCode);
 
         if (user == null)
         {
-            await LogAction(null, "RESET_PASSWORD_USER_NOT_FOUND", $"Email: {request.Email}, IP: {ip}", ip);
+            await LogAction(null, "RESET_PASSWORD_INVALID", $"Username: {request.Username}, IP: {ip}", ip);
             return BadRequest(new AuthResponse
             {
                 Success = false,
-                Message = "Неверный email или код"
-            });
-        }
-
-        // Проверка кода
-        var resetCode = await _context.PasswordResetCodes
-            .Where(r => r.UserId == user.Id && r.Code == request.Code && !r.IsUsed && r.ExpiresAt > DateTime.UtcNow)
-            .OrderByDescending(r => r.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (resetCode == null)
-        {
-            await LogAction(user.Id, "RESET_PASSWORD_INVALID_CODE", $"IP: {ip}", ip);
-            return BadRequest(new AuthResponse
-            {
-                Success = false,
-                Message = "Неверный или истекший код"
+                Message = "Неверное имя пользователя или код восстановления"
             });
         }
 
         // Обновление пароля
         user.PasswordHash = _passwordService.HashPassword(request.NewPassword);
         user.UpdatedAt = DateTime.UtcNow;
-
-        // Отметка кода как использованного
-        resetCode.IsUsed = true;
-        resetCode.UsedAt = DateTime.UtcNow;
 
         // Отзыв всех активных сессий
         var sessions = await _context.LoginSessions
@@ -477,6 +354,8 @@ public class AuthController : ControllerBase
         await _context.SaveChangesAsync();
 
         await LogAction(user.Id, "RESET_PASSWORD_SUCCESS", $"IP: {ip}", ip);
+
+        _logger.LogInformation($"Password reset successful for user: {user.Username} (ID: {user.Id})");
 
         return Ok(new AuthResponse
         {

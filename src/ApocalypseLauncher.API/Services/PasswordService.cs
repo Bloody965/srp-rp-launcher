@@ -73,4 +73,23 @@ public class PasswordService
 
         return (true, null);
     }
+
+    // Генерация кода восстановления (16 символов: буквы и цифры)
+    public string GenerateRecoveryCode()
+    {
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        var random = new byte[16];
+        using (var rng = RandomNumberGenerator.Create())
+        {
+            rng.GetBytes(random);
+        }
+
+        var result = new char[16];
+        for (int i = 0; i < 16; i++)
+        {
+            result[i] = chars[random[i] % chars.Length];
+        }
+
+        return new string(result);
+    }
 }

@@ -36,12 +36,12 @@ public class ApiService
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
-    public async Task<ApiResponse<AuthResult>> RegisterAsync(string username, string email, string password)
+    public async Task<ApiResponse<AuthResult>> RegisterAsync(string username, string password)
     {
         try
         {
             Console.WriteLine($"[ApiService.RegisterAsync] Starting request to {_httpClient.BaseAddress}api/auth/register");
-            var request = new { username, email, password };
+            var request = new { username, password };
             var response = await _httpClient.PostAsJsonAsync("/api/auth/register", request);
 
             Console.WriteLine($"[ApiService.RegisterAsync] Response status: {response.StatusCode}");
@@ -57,11 +57,12 @@ public class ApiService
                     {
                         Token = result.Token,
                         Username = result.User?.Username ?? username,
-                        Email = result.User?.Email ?? email,
+                        Email = result.User?.Email ?? "",
                         MinecraftUUID = result.User?.MinecraftUUID ?? "",
                         UUID = result.User?.MinecraftUUID ?? "",
                         AccessToken = result.Token,
-                        IsOffline = false
+                        IsOffline = false,
+                        RecoveryCode = result.RecoveryCode // Код восстановления
                     });
                 }
                 return ApiResponse<AuthResult>.Failure(result?.Message ?? "Ошибка регистрации");
@@ -494,6 +495,7 @@ public class AuthResponseDto
     public string? Token { get; set; }
     public string? Message { get; set; }
     public UserInfoDto? User { get; set; }
+    public string? RecoveryCode { get; set; } // Код восстановления
 }
 
 public class UserInfoDto

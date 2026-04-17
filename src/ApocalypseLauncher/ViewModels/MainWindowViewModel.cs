@@ -746,16 +746,6 @@ public class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(Email))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите email!";
-                });
-                Console.WriteLine("[RegisterAsync] Ошибка: пустой email");
-                return;
-            }
-
             if (string.IsNullOrWhiteSpace(Password))
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
@@ -767,28 +757,31 @@ public class MainWindowViewModel : ViewModelBase
             }
 
             StatusMessage = "Регистрация...";
-            Console.WriteLine($"[RegisterAsync] Отправка запроса: {Username}, {Email}");
+            Console.WriteLine($"[RegisterAsync] Отправка запроса: {Username}");
 
-            var result = await _apiService.RegisterAsync(Username, Email, Password);
+            var result = await _apiService.RegisterAsync(Username, Password);
 
             Console.WriteLine($"[RegisterAsync] Результат: Success={result.IsSuccess}, Error={result.ErrorMessage}");
 
             if (result.IsSuccess && result.Data != null)
             {
+                // ВАЖНО: Показываем recovery code пользователю
+                var recoveryCode = result.Data.RecoveryCode;
+
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     IsLoggedIn = true;
                     CurrentView = "Main";
-                    StatusMessage = $"Добро пожаловать, {result.Data.Username}!";
+                    StatusMessage = $"Регистрация успешна! КОД ВОССТАНОВЛЕНИЯ: {recoveryCode}";
                     Username = result.Data.Username;
-                    UserEmail = result.Data.Email;
-                    LoginErrorMessage = null;
+                    UserEmail = result.Data.Email ?? "";
+                    LoginErrorMessage = $"✅ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ: {recoveryCode}\n\nОн понадобится для сброса пароля!";
                 });
 
                 // Сохраняем токен для автоматического входа
-                SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email);
+                SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email ?? "");
 
-                Console.WriteLine("[RegisterAsync] Регистрация успешна!");
+                Console.WriteLine($"[RegisterAsync] Регистрация успешна! Recovery code: {recoveryCode}");
 
                 // Проверяем установку
                 CheckInstallation();

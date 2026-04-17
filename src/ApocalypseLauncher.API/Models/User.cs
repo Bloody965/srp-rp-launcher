@@ -12,13 +12,15 @@ public class User
     [MaxLength(50)]
     public string Username { get; set; } = string.Empty;
 
-    [Required]
-    [EmailAddress]
     [MaxLength(100)]
-    public string Email { get; set; } = string.Empty;
+    public string? Email { get; set; }
 
     [Required]
     public string PasswordHash { get; set; } = string.Empty;
+
+    // Код восстановления пароля (генерируется при регистрации)
+    [MaxLength(64)]
+    public string? RecoveryCode { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
