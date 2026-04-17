@@ -171,7 +171,23 @@
                                         </StackPanel>
 
                                         <Border Classes="errorCard" Padding="16,14" IsVisible="{Binding HasLoginError}">
-                                            <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#E3B39C" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"/>
+                                            <StackPanel Spacing="10">
+                                                <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#E3B39C" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"/>
+
+                                                <!-- Копируемый recovery code -->
+                                                <TextBox Text="{Binding RecoveryCodeDisplay}"
+                                                         IsReadOnly="True"
+                                                         IsVisible="{Binding ShowRecoveryCode}"
+                                                         FontSize="18"
+                                                         FontWeight="Bold"
+                                                         TextAlignment="Center"
+                                                         Background="#15D3924D"
+                                                         BorderBrush="#D3924D"
+                                                         BorderThickness="2"
+                                                         Padding="12,8"
+                                                         SelectionBrush="#D3924D"
+                                                         SelectionForegroundBrush="#080706"/>
+                                            </StackPanel>
                                         </Border>
 
                                         <StackPanel Spacing="12">

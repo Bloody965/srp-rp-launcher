@@ -337,6 +337,20 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _recoveryCode, value);
     }
 
+    private string _recoveryCodeDisplay = "";
+    public string RecoveryCodeDisplay
+    {
+        get => _recoveryCodeDisplay;
+        set => this.RaiseAndSetIfChanged(ref _recoveryCodeDisplay, value);
+    }
+
+    private bool _showRecoveryCode = false;
+    public bool ShowRecoveryCode
+    {
+        get => _showRecoveryCode;
+        set => this.RaiseAndSetIfChanged(ref _showRecoveryCode, value);
+    }
+
     private string _newPassword = "";
     public string NewPassword
     {
@@ -791,8 +805,13 @@ public class MainWindowViewModel : ViewModelBase
                     CurrentView = "Login";
                     Username = "";
                     Password = "";
-                    LoginErrorMessage = $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n🔑 ВАШ КОД ВОССТАНОВЛЕНИЯ:\n{recoveryCode}\n\n⚠️ СОХРАНИТЕ ЕГО СЕЙЧАС!\nОн понадобится для восстановления пароля.\nКод больше не будет показан!";
-                    StatusMessage = $"Регистрация завершена. Войдите в систему.";
+
+                    // Показываем recovery code в отдельном копируемом поле
+                    RecoveryCodeDisplay = recoveryCode;
+                    ShowRecoveryCode = true;
+
+                    LoginErrorMessage = $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n⚠️ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ НИЖЕ!\nВыделите и скопируйте его (Ctrl+C).\nОн понадобится для восстановления пароля.\nКод больше не будет показан!";
+                    StatusMessage = $"Регистрация завершена. Сохраните код и войдите.";
                 });
 
                 Console.WriteLine($"[RegisterAsync] Регистрация успешна! Recovery code: {recoveryCode}");
@@ -826,10 +845,12 @@ public class MainWindowViewModel : ViewModelBase
         {
             Console.WriteLine("[LoginAsync] Начало входа");
 
-            // Очищаем предыдущие ошибки в UI потоке
+            // Очищаем предыдущие ошибки и скрываем recovery code
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 LoginErrorMessage = null;
+                ShowRecoveryCode = false;
+                RecoveryCodeDisplay = "";
             });
 
             if (string.IsNullOrWhiteSpace(Username))
