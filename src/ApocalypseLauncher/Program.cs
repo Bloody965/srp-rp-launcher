@@ -18,6 +18,26 @@ class Program
             Console.WriteLine("====================================");
             Console.WriteLine();
 
+            // Инициализация системы безопасности
+            Console.WriteLine("[Security] Initializing protection systems...");
+
+            // Anti-debugging защита
+            Core.Security.AntiDebug.Initialize();
+
+            // Проверка целостности
+            if (!Core.Security.AntiDebug.VerifyIntegrity())
+            {
+                Console.WriteLine("[Security] INTEGRITY CHECK FAILED - Launcher may be modified!");
+                Console.WriteLine("[Security] Please re-download the launcher from official source.");
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
+                Environment.Exit(1);
+                return;
+            }
+
+            Console.WriteLine("[Security] All protection systems active");
+            Console.WriteLine();
+
             BuildAvaloniaApp()
                 .StartWithClassicDesktopLifetime(args);
 

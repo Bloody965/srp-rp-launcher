@@ -13,11 +13,33 @@ public class PasswordService
         return BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
     }
 
+    public string HashRecoveryCode(string recoveryCode)
+    {
+        return BCrypt.Net.BCrypt.HashPassword(recoveryCode, workFactor: 12);
+    }
+
     public bool VerifyPassword(string password, string hash)
     {
         try
         {
             return BCrypt.Net.BCrypt.Verify(password, hash);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public bool VerifyRecoveryCode(string recoveryCode, string? hash)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return false;
+        }
+
+        try
+        {
+            return BCrypt.Net.BCrypt.Verify(recoveryCode, hash);
         }
         catch
         {

@@ -15,7 +15,6 @@ public class AuthController : ControllerBase
     private readonly JwtService _jwtService;
     private readonly PasswordService _passwordService;
     private readonly RateLimitService _rateLimitService;
-    private readonly EmailService _emailService;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -23,14 +22,12 @@ public class AuthController : ControllerBase
         JwtService jwtService,
         PasswordService passwordService,
         RateLimitService rateLimitService,
-        EmailService emailService,
         ILogger<AuthController> logger)
     {
         _context = context;
         _jwtService = jwtService;
         _passwordService = passwordService;
         _rateLimitService = rateLimitService;
-        _emailService = emailService;
         _logger = logger;
     }
 
@@ -85,7 +82,7 @@ public class AuthController : ControllerBase
             Username = request.Username,
             Email = null, // Не храним email
             PasswordHash = _passwordService.HashPassword(request.Password),
-            RecoveryCode = recoveryCode,
+            RecoveryCode = _passwordService.HashRecoveryCode(recoveryCode),
             MinecraftUUID = _passwordService.GenerateMinecraftUUID(request.Username),
             CreatedAt = DateTime.UtcNow,
             IsActive = true,
@@ -104,7 +101,7 @@ public class AuthController : ControllerBase
         var session = new LoginSession
         {
             UserId = user.Id,
-            Token = token,
+            Token = _jwtService.HashToken(token),
             IpAddress = ip,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(24)
@@ -197,7 +194,7 @@ public class AuthController : ControllerBase
         var session = new LoginSession
         {
             UserId = user.Id,
-            Token = token,
+            Token = _jwtService.HashToken(token),
             IpAddress = ip,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(24)
@@ -249,8 +246,9 @@ public class AuthController : ControllerBase
         }
 
         // Проверка сессии
+        var tokenHash = _jwtService.HashToken(token);
         var session = await _context.LoginSessions
-            .FirstOrDefaultAsync(s => s.Token == token && s.UserId == userId && !s.IsRevoked);
+            .FirstOrDefaultAsync(s => s.Token == tokenHash && s.UserId == userId && !s.IsRevoked);
 
         if (session == null || session.ExpiresAt < DateTime.UtcNow)
         {
@@ -324,10 +322,9 @@ public class AuthController : ControllerBase
 
         // Поиск пользователя по username и recovery code
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower() &&
-                                     u.RecoveryCode == request.RecoveryCode);
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower());
 
-        if (user == null)
+        if (user == null || !_passwordService.VerifyRecoveryCode(request.RecoveryCode, user.RecoveryCode))
         {
             await LogAction(null, "RESET_PASSWORD_INVALID", $"Username: {request.Username}, IP: {ip}", ip);
             return BadRequest(new AuthResponse

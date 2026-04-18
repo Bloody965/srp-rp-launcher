@@ -31,5 +31,6 @@
     <!-- <PackageReference Include="ReactiveUI.Fody" Version="19.5.41"/> -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.4" />
   </ItemGroup>
 </Project>

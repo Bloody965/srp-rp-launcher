@@ -13,7 +13,6 @@ public class AppDbContext : DbContext
     public DbSet<LoginSession> LoginSessions { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<ModpackVersion> ModpackVersions { get; set; }
-    public DbSet<PasswordResetCode> PasswordResetCodes { get; set; }
     public DbSet<PlayerSkin> PlayerSkins { get; set; }
     public DbSet<PlayerCape> PlayerCapes { get; set; }
 
@@ -56,16 +55,6 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<ModpackVersion>()
             .HasIndex(m => m.IsActive);
-
-        // PasswordResetCode indexes
-        modelBuilder.Entity<PasswordResetCode>()
-            .HasIndex(p => p.UserId);
-
-        modelBuilder.Entity<PasswordResetCode>()
-            .HasIndex(p => p.Code);
-
-        modelBuilder.Entity<PasswordResetCode>()
-            .HasIndex(p => p.ExpiresAt);
 
         // PlayerSkin indexes
         modelBuilder.Entity<PlayerSkin>()

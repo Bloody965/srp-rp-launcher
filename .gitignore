@@ -64,3 +64,9 @@ mods/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Publish artifacts and local packages
+publish-launcher/
+publish-installer/
+*.zip
+src/ApocalypseLauncher.API/*.db

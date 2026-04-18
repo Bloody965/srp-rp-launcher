@@ -1,9 +1,12 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reactive;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using ApocalypseLauncher.Core.Models;
 using ApocalypseLauncher.Core.Services;
+using ApocalypseLauncher.Core.Security;
 using ReactiveUI;
 using Avalonia.Controls;
 
@@ -36,18 +39,18 @@ public class MainWindowViewModel : ViewModelBase
         _updateService = new LauncherUpdateService();
         _skinService = new SkinService(_apiService, _minecraftDirectory);
 
-        // Подписываемся на события
+        // РџРѕРґРїРёСЃС‹РІР°РµРјСЃСЏ РЅР° СЃРѕР±С‹С‚РёСЏ
         _installer.StatusChanged += (s, status) => StatusMessage = status;
         _installer.ProgressChanged += (s, progress) => ProgressValue = progress;
         _gameLauncher.OutputReceived += (s, output) => GameOutput += output + "\n";
         _gameLauncher.GameStarted += (s, e) => IsGameRunning = true;
         _gameLauncher.GameExited += (s, code) =>
         {
-            // Вызываем в UI потоке чтобы избежать краша
+            // Р’С‹Р·С‹РІР°РµРј РІ UI РїРѕС‚РѕРєРµ С‡С‚РѕР±С‹ РёР·Р±РµР¶Р°С‚СЊ РєСЂР°С€Р°
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 IsGameRunning = false;
-                StatusMessage = $"Игра завершена с кодом: {code}";
+                StatusMessage = $"РРіСЂР° Р·Р°РІРµСЂС€РµРЅР° СЃ РєРѕРґРѕРј: {code}";
             });
         };
 
@@ -56,7 +59,7 @@ public class MainWindowViewModel : ViewModelBase
 
         _skinService.StatusChanged += (s, status) => StatusMessage = status;
 
-        // Команды
+        // РљРѕРјР°РЅРґС‹
         LoginCommand = ReactiveCommand.CreateFromTask(LoginAsync);
         RegisterCommand = ReactiveCommand.CreateFromTask(RegisterAsync);
         InstallCommand = ReactiveCommand.CreateFromTask(InstallMinecraftAsync);
@@ -69,7 +72,6 @@ public class MainWindowViewModel : ViewModelBase
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
         LogoutCommand = ReactiveCommand.Create(Logout);
         ResetPasswordCommand = ReactiveCommand.Create(ShowResetPassword);
-        SendResetCodeCommand = ReactiveCommand.Create(() => { });
         ConfirmResetPasswordCommand = ReactiveCommand.CreateFromTask(ConfirmResetPasswordAsync);
         CancelResetCommand = ReactiveCommand.Create(CancelReset);
         EditNicknameCommand = ReactiveCommand.Create(StartEditNickname);
@@ -79,13 +81,13 @@ public class MainWindowViewModel : ViewModelBase
         UploadCapeCommand = ReactiveCommand.CreateFromTask(UploadCapeAsync);
         DeleteSkinCommand = ReactiveCommand.CreateFromTask(DeleteSkinAsync);
 
-        // Загружаем настройки RAM
+        // Р—Р°РіСЂСѓР¶Р°РµРј РЅР°СЃС‚СЂРѕР№РєРё RAM
         LoadRamSettings();
 
-        // Автоматический вход при запуске
+        // РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ РІС…РѕРґ РїСЂРё Р·Р°РїСѓСЃРєРµ
         _ = TryAutoLoginAsync();
 
-        // Проверка обновлений лаунчера
+        // РџСЂРѕРІРµСЂРєР° РѕР±РЅРѕРІР»РµРЅРёР№ Р»Р°СѓРЅС‡РµСЂР°
         _ = CheckForLauncherUpdatesAsync();
     }
 
@@ -113,7 +115,7 @@ public class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SaveRamSettings] Ошибка: {ex.Message}");
+            Console.WriteLine($"[SaveRamSettings] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -135,7 +137,7 @@ public class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadRamSettings] Ошибка: {ex.Message}");
+            Console.WriteLine($"[LoadRamSettings] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -144,12 +146,40 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             var data = $"{token}|{username}|{email}";
-            File.WriteAllText(GetTokenFilePath(), data);
-            Console.WriteLine("[SaveToken] Токен сохранен");
+            var tokenFilePath = GetTokenFilePath();
+            File.WriteAllText(tokenFilePath, ProtectLocalData(data));
+            Console.WriteLine("[SaveToken] РўРѕРєРµРЅ СЃРѕС…СЂР°РЅРµРЅ");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[SaveToken] Ошибка: {ex.Message}");
+            Console.WriteLine($"[SaveToken] РћС€РёР±РєР°: {ex.Message}");
+        }
+    }
+
+    private string ProtectLocalData(string value)
+    {
+        try
+        {
+            return SecureStorage.Encrypt(value);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ProtectLocalData] Error: {ex.Message}");
+            throw;
+        }
+    }
+
+    private string UnprotectLocalData(string value)
+    {
+        try
+        {
+            return SecureStorage.Decrypt(value);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[UnprotectLocalData] Error: {ex.Message}");
+            // Возвращаем исходное значение для обратной совместимости
+            return value;
         }
     }
 
@@ -160,14 +190,14 @@ public class MainWindowViewModel : ViewModelBase
             var tokenFile = GetTokenFilePath();
             if (!File.Exists(tokenFile))
             {
-                Console.WriteLine("[TryAutoLogin] Токен не найден");
+                Console.WriteLine("[TryAutoLogin] РўРѕРєРµРЅ РЅРµ РЅР°Р№РґРµРЅ");
                 return;
             }
 
-            var data = File.ReadAllText(tokenFile).Split('|');
+            var data = UnprotectLocalData(File.ReadAllText(tokenFile)).Split('|');
             if (data.Length != 3)
             {
-                Console.WriteLine("[TryAutoLogin] Неверный формат токена");
+                Console.WriteLine("[TryAutoLogin] РќРµРІРµСЂРЅС‹Р№ С„РѕСЂРјР°С‚ С‚РѕРєРµРЅР°");
                 return;
             }
 
@@ -186,23 +216,23 @@ public class MainWindowViewModel : ViewModelBase
                     CurrentView = "Main";
                     Username = username;
                     UserEmail = email;
-                    StatusMessage = $"Добро пожаловать, {username}!";
+                    StatusMessage = $"Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ, {username}!";
                 });
 
                 CheckInstallation();
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
-                Console.WriteLine("[TryAutoLogin] Автоматический вход выполнен");
+                Console.WriteLine("[TryAutoLogin] РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ РІС…РѕРґ РІС‹РїРѕР»РЅРµРЅ");
             }
             else
             {
                 File.Delete(tokenFile);
-                Console.WriteLine("[TryAutoLogin] Токен недействителен, удален");
+                Console.WriteLine("[TryAutoLogin] РўРѕРєРµРЅ РЅРµРґРµР№СЃС‚РІРёС‚РµР»РµРЅ, СѓРґР°Р»РµРЅ");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TryAutoLogin] Ошибка: {ex.Message}");
+            Console.WriteLine($"[TryAutoLogin] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -213,13 +243,6 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _username, value);
     }
 
-    private string _email = "";
-    public string Email
-    {
-        get => _email;
-        set => this.RaiseAndSetIfChanged(ref _email, value);
-    }
-
     private string _userEmail = "";
     public string UserEmail
     {
@@ -227,7 +250,7 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _userEmail, value);
     }
 
-    private string _playTimeFormatted = "0 ч";
+    private string _playTimeFormatted = "0 С‡";
     public string PlayTimeFormatted
     {
         get => _playTimeFormatted;
@@ -279,12 +302,12 @@ public class MainWindowViewModel : ViewModelBase
     }
 
     public string ServerStatusText => IsServerOnline
-        ? $"🟢 Онлайн • {PlayersOnline}/{MaxPlayers} игроков"
-        : "🔴 Офлайн";
+        ? $"рџџў РћРЅР»Р°Р№РЅ вЂў {PlayersOnline}/{MaxPlayers} РёРіСЂРѕРєРѕРІ"
+        : "рџ”ґ РћС„Р»Р°Р№РЅ";
 
     public string ServerStatusColor => IsServerOnline ? "#53dc96" : "#ff6a4a";
 
-    private string _aboutProjectText = "Информация о проекте будет добавлена позже.";
+    private string _aboutProjectText = "РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РїСЂРѕРµРєС‚Рµ Р±СѓРґРµС‚ РґРѕР±Р°РІР»РµРЅР° РїРѕР·Р¶Рµ.";
     public string AboutProjectText
     {
         get => _aboutProjectText;
@@ -306,7 +329,7 @@ public class MainWindowViewModel : ViewModelBase
     {
         var hours = _playTimeMinutes / 60;
         var minutes = _playTimeMinutes % 60;
-        PlayTimeFormatted = hours > 0 ? $"{hours} ч {minutes} мин" : $"{minutes} мин";
+        PlayTimeFormatted = hours > 0 ? $"{hours} С‡ {minutes} РјРёРЅ" : $"{minutes} РјРёРЅ";
     }
 
     private string _newNickname = "";
@@ -385,28 +408,6 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isResettingPassword, value);
     }
 
-    private bool _resetCodeSent = false;
-    public bool ResetCodeSent
-    {
-        get => _resetCodeSent;
-        set
-        {
-            this.RaiseAndSetIfChanged(ref _resetCodeSent, value);
-            this.RaisePropertyChanged(nameof(ResetPasswordDescription));
-        }
-    }
-
-    public string ResetPasswordDescription => _resetCodeSent
-        ? "Код отправлен на вашу почту. Введите его ниже."
-        : "Укажите email для получения кода восстановления.";
-
-    private string _resetCode = "";
-    public string ResetCode
-    {
-        get => _resetCode;
-        set => this.RaiseAndSetIfChanged(ref _resetCode, value);
-    }
-
     private bool _hasLauncherUpdate;
     public bool HasLauncherUpdate
     {
@@ -444,7 +445,7 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isSlimSkin, value);
     }
 
-    private string _skinStatus = "Скин не загружен";
+    private string _skinStatus = "РЎРєРёРЅ РЅРµ Р·Р°РіСЂСѓР¶РµРЅ";
     public string SkinStatus
     {
         get => _skinStatus;
@@ -479,7 +480,7 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isGameRunning, value);
     }
 
-    private string _statusMessage = "Добро пожаловать в постапокалипсис...";
+    private string _statusMessage = "Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ РІ РїРѕСЃС‚Р°РїРѕРєР°Р»РёРїСЃРёСЃ...";
     public string StatusMessage
     {
         get => _statusMessage;
@@ -500,7 +501,7 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _gameOutput, value);
     }
 
-    private string _modpackVersion = "Проверка...";
+    private string _modpackVersion = "РџСЂРѕРІРµСЂРєР°...";
     public string ModpackVersion
     {
         get => _modpackVersion;
@@ -524,7 +525,6 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> ToggleRegisterCommand { get; }
     public ReactiveCommand<Unit, Unit> LogoutCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetPasswordCommand { get; }
-    public ReactiveCommand<Unit, Unit> SendResetCodeCommand { get; }
     public ReactiveCommand<Unit, Unit> ConfirmResetPasswordCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelResetCommand { get; }
     public ReactiveCommand<Unit, Unit> EditNicknameCommand { get; }
@@ -538,26 +538,26 @@ public class MainWindowViewModel : ViewModelBase
     {
         // This needs to be called from the View with the Window reference
         // For now, we'll just show a message
-        StatusMessage = "Используйте кнопку 'Выбрать папку' в интерфейсе";
+        StatusMessage = "РСЃРїРѕР»СЊР·СѓР№С‚Рµ РєРЅРѕРїРєСѓ 'Р’С‹Р±СЂР°С‚СЊ РїР°РїРєСѓ' РІ РёРЅС‚РµСЂС„РµР№СЃРµ";
     }
 
     public async Task ChooseFolderFromWindowAsync(Window window)
     {
-        var folder = await _folderPicker.PickFolderAsync(window, "Выберите папку для установки Minecraft");
+        var folder = await _folderPicker.PickFolderAsync(window, "Р’С‹Р±РµСЂРёС‚Рµ РїР°РїРєСѓ РґР»СЏ СѓСЃС‚Р°РЅРѕРІРєРё Minecraft");
 
         if (!string.IsNullOrEmpty(folder))
         {
             _minecraftDirectory = folder;
-            StatusMessage = $"Папка установки: {folder}";
+            StatusMessage = $"РџР°РїРєР° СѓСЃС‚Р°РЅРѕРІРєРё: {folder}";
 
-            // Пересоздаем installer с новой папкой
+            // РџРµСЂРµСЃРѕР·РґР°РµРј installer СЃ РЅРѕРІРѕР№ РїР°РїРєРѕР№
             _installer = new MinecraftInstaller(_minecraftDirectory);
 
-            // Подписываемся на события заново
+            // РџРѕРґРїРёСЃС‹РІР°РµРјСЃСЏ РЅР° СЃРѕР±С‹С‚РёСЏ Р·Р°РЅРѕРІРѕ
             _installer.StatusChanged += (s, status) => StatusMessage = status;
             _installer.ProgressChanged += (s, progress) => ProgressValue = progress;
 
-            // Обновляем ModpackUpdater с новой папкой
+            // РћР±РЅРѕРІР»СЏРµРј ModpackUpdater СЃ РЅРѕРІРѕР№ РїР°РїРєРѕР№
             _modpackUpdater = new ModpackUpdater(_minecraftDirectory, _apiService);
             _modpackUpdater.StatusChanged += (s, status) => StatusMessage = status;
             _modpackUpdater.ProgressChanged += (s, progress) => ProgressValue = progress;
@@ -569,8 +569,8 @@ public class MainWindowViewModel : ViewModelBase
     private void ToggleRegister()
     {
         IsRegistering = !IsRegistering;
-        LoginErrorMessage = null; // Очищаем ошибку при переключении
-        StatusMessage = IsRegistering ? "Регистрация нового аккаунта" : "Вход в аккаунт";
+        LoginErrorMessage = null; // РћС‡РёС‰Р°РµРј РѕС€РёР±РєСѓ РїСЂРё РїРµСЂРµРєР»СЋС‡РµРЅРёРё
+        StatusMessage = IsRegistering ? "Р РµРіРёСЃС‚СЂР°С†РёСЏ РЅРѕРІРѕРіРѕ Р°РєРєР°СѓРЅС‚Р°" : "Р’С…РѕРґ РІ Р°РєРєР°СѓРЅС‚";
     }
 
     private void Logout()
@@ -580,53 +580,51 @@ public class MainWindowViewModel : ViewModelBase
         CurrentView = "Login";
         Password = "";
         LoginErrorMessage = null;
-        StatusMessage = "Вы вышли из аккаунта";
+        StatusMessage = "Р’С‹ РІС‹С€Р»Рё РёР· Р°РєРєР°СѓРЅС‚Р°";
 
-        // Удаляем сохраненный токен
+        // РЈРґР°Р»СЏРµРј СЃРѕС…СЂР°РЅРµРЅРЅС‹Р№ С‚РѕРєРµРЅ
         try
         {
             var tokenFile = GetTokenFilePath();
             if (File.Exists(tokenFile))
             {
                 File.Delete(tokenFile);
-                Console.WriteLine("[Logout] Токен удален");
+                Console.WriteLine("[Logout] РўРѕРєРµРЅ СѓРґР°Р»РµРЅ");
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Logout] Ошибка удаления токена: {ex.Message}");
+            Console.WriteLine($"[Logout] РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ С‚РѕРєРµРЅР°: {ex.Message}");
         }
 
-        Console.WriteLine("[Logout] Пользователь вышел из системы");
+        Console.WriteLine("[Logout] РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РІС‹С€РµР» РёР· СЃРёСЃС‚РµРјС‹");
     }
 
     private void ShowResetPassword()
     {
         IsResettingPassword = true;
-        ResetCodeSent = true;
         NewPassword = "";
         RecoveryCode = "";
         LoginErrorMessage = null;
-        StatusMessage = "Введите имя пользователя, код восстановления и новый пароль";
-        Console.WriteLine("[ShowResetPassword] Открыт экран сброса пароля");
+        StatusMessage = "Р’РІРµРґРёС‚Рµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ, РєРѕРґ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ Рё РЅРѕРІС‹Р№ РїР°СЂРѕР»СЊ";
+        Console.WriteLine("[ShowResetPassword] РћС‚РєСЂС‹С‚ СЌРєСЂР°РЅ СЃР±СЂРѕСЃР° РїР°СЂРѕР»СЏ");
     }
 
     private void CancelReset()
     {
         IsResettingPassword = false;
-        ResetCodeSent = false;
         RecoveryCode = "";
         NewPassword = "";
         LoginErrorMessage = null;
-        StatusMessage = "Вход в аккаунт";
-        Console.WriteLine("[CancelReset] Отмена сброса пароля");
+        StatusMessage = "Р’С…РѕРґ РІ Р°РєРєР°СѓРЅС‚";
+        Console.WriteLine("[CancelReset] РћС‚РјРµРЅР° СЃР±СЂРѕСЃР° РїР°СЂРѕР»СЏ");
     }
 
     private async Task ConfirmResetPasswordAsync()
     {
         try
         {
-            Console.WriteLine("[ConfirmResetPasswordAsync] Подтверждение сброса");
+            Console.WriteLine("[ConfirmResetPasswordAsync] РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ СЃР±СЂРѕСЃР°");
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -637,7 +635,7 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите имя пользователя!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ!";
                 });
                 return;
             }
@@ -646,7 +644,7 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите код восстановления!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РєРѕРґ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ!";
                 });
                 return;
             }
@@ -655,12 +653,12 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите новый пароль!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РЅРѕРІС‹Р№ РїР°СЂРѕР»СЊ!";
                 });
                 return;
             }
 
-            StatusMessage = "Сброс пароля...";
+            StatusMessage = "РЎР±СЂРѕСЃ РїР°СЂРѕР»СЏ...";
             var result = await _apiService.ResetPasswordAsync(Username, RecoveryCode, NewPassword);
 
             if (result.IsSuccess)
@@ -672,26 +670,26 @@ public class MainWindowViewModel : ViewModelBase
                     RecoveryCode = "";
                     NewPassword = "";
                     LoginErrorMessage = null;
-                    StatusMessage = "Пароль изменен! Войдите с новым паролем.";
+                    StatusMessage = "РџР°СЂРѕР»СЊ РёР·РјРµРЅРµРЅ! Р’РѕР№РґРёС‚Рµ СЃ РЅРѕРІС‹Рј РїР°СЂРѕР»РµРј.";
                 });
-                Console.WriteLine("[ConfirmResetPasswordAsync] Пароль изменен");
+                Console.WriteLine("[ConfirmResetPasswordAsync] РџР°СЂРѕР»СЊ РёР·РјРµРЅРµРЅ");
             }
             else
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка сброса пароля";
-                    StatusMessage = "Ошибка";
+                    LoginErrorMessage = result.ErrorMessage ?? "РћС€РёР±РєР° СЃР±СЂРѕСЃР° РїР°СЂРѕР»СЏ";
+                    StatusMessage = "РћС€РёР±РєР°";
                 });
-                Console.WriteLine($"[ConfirmResetPasswordAsync] Ошибка: {result.ErrorMessage}");
+                Console.WriteLine($"[ConfirmResetPasswordAsync] РћС€РёР±РєР°: {result.ErrorMessage}");
             }
         }
         catch (Exception ex)
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                LoginErrorMessage = $"Ошибка: {ex.Message}";
-                StatusMessage = "Ошибка";
+                LoginErrorMessage = $"РћС€РёР±РєР°: {ex.Message}";
+                StatusMessage = "РћС€РёР±РєР°";
             });
             Console.WriteLine($"[ConfirmResetPasswordAsync] EXCEPTION: {ex.Message}");
         }
@@ -701,9 +699,9 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            Console.WriteLine("[RegisterAsync] Начало регистрации");
+            Console.WriteLine("[RegisterAsync] РќР°С‡Р°Р»Рѕ СЂРµРіРёСЃС‚СЂР°С†РёРё");
 
-            // Очищаем предыдущие ошибки в UI потоке
+            // РћС‡РёС‰Р°РµРј РїСЂРµРґС‹РґСѓС‰РёРµ РѕС€РёР±РєРё РІ UI РїРѕС‚РѕРєРµ
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 LoginErrorMessage = null;
@@ -713,9 +711,9 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите имя пользователя!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ!";
                 });
-                Console.WriteLine("[RegisterAsync] Ошибка: пустое имя");
+                Console.WriteLine("[RegisterAsync] РћС€РёР±РєР°: РїСѓСЃС‚РѕРµ РёРјСЏ");
                 return;
             }
 
@@ -723,60 +721,59 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите пароль!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РїР°СЂРѕР»СЊ!";
                 });
-                Console.WriteLine("[RegisterAsync] Ошибка: пустой пароль");
+                Console.WriteLine("[RegisterAsync] РћС€РёР±РєР°: РїСѓСЃС‚РѕР№ РїР°СЂРѕР»СЊ");
                 return;
             }
 
-            StatusMessage = "Регистрация...";
-            Console.WriteLine($"[RegisterAsync] Отправка запроса: {Username}");
+            StatusMessage = "Р РµРіРёСЃС‚СЂР°С†РёСЏ...";
+            Console.WriteLine($"[RegisterAsync] РћС‚РїСЂР°РІРєР° Р·Р°РїСЂРѕСЃР°: {Username}");
 
             var result = await _apiService.RegisterAsync(Username, Password);
 
-            Console.WriteLine($"[RegisterAsync] Результат: Success={result.IsSuccess}, Error={result.ErrorMessage}");
+            Console.WriteLine($"[RegisterAsync] Р РµР·СѓР»СЊС‚Р°С‚: Success={result.IsSuccess}, Error={result.ErrorMessage}");
 
             if (result.IsSuccess && result.Data != null)
             {
-                // ВАЖНО: Показываем recovery code пользователю
-                var recoveryCode = result.Data.RecoveryCode;
+                // Р’РђР–РќРћ: РџРѕРєР°Р·С‹РІР°РµРј recovery code РїРѕР»СЊР·РѕРІР°С‚РµР»СЋ
+                var recoveryCode = result.Data.RecoveryCode ?? "";
 
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    // НЕ входим сразу - показываем код на экране входа
+                    // РќР• РІС…РѕРґРёРј СЃСЂР°Р·Сѓ - РїРѕРєР°Р·С‹РІР°РµРј РєРѕРґ РЅР° СЌРєСЂР°РЅРµ РІС…РѕРґР°
                     IsLoggedIn = false;
                     IsRegistering = false;
                     CurrentView = "Login";
                     Username = "";
                     Password = "";
 
-                    // Показываем recovery code в отдельном копируемом поле
+                    // РџРѕРєР°Р·С‹РІР°РµРј recovery code РІ РѕС‚РґРµР»СЊРЅРѕРј РєРѕРїРёСЂСѓРµРјРѕРј РїРѕР»Рµ
                     RecoveryCodeDisplay = recoveryCode;
                     ShowRecoveryCode = true;
 
-                    LoginErrorMessage = $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n⚠️ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ НИЖЕ!\nВыделите и скопируйте его (Ctrl+C).\nОн понадобится для восстановления пароля.\nКод больше не будет показан!";
-                    StatusMessage = $"Регистрация завершена. Сохраните код и войдите.";
+                    LoginErrorMessage = $"вњ… Р Р•Р“РРЎРўР РђР¦РРЇ РЈРЎРџР•РЁРќРђ!\n\nвљ пёЏ РЎРћРҐР РђРќРРўР• РљРћР” Р’РћРЎРЎРўРђРќРћР’Р›Р•РќРРЇ РќРР–Р•!\nР’С‹РґРµР»РёС‚Рµ Рё СЃРєРѕРїРёСЂСѓР№С‚Рµ РµРіРѕ (Ctrl+C).\nРћРЅ РїРѕРЅР°РґРѕР±РёС‚СЃСЏ РґР»СЏ РІРѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёСЏ РїР°СЂРѕР»СЏ.\nРљРѕРґ Р±РѕР»СЊС€Рµ РЅРµ Р±СѓРґРµС‚ РїРѕРєР°Р·Р°РЅ!";
+                    StatusMessage = $"Р РµРіРёСЃС‚СЂР°С†РёСЏ Р·Р°РІРµСЂС€РµРЅР°. РЎРѕС…СЂР°РЅРёС‚Рµ РєРѕРґ Рё РІРѕР№РґРёС‚Рµ.";
                 });
 
-                Console.WriteLine($"[RegisterAsync] Регистрация успешна! Recovery code: {recoveryCode}");
-                Console.WriteLine($"[RegisterAsync] Пользователь должен сохранить код и войти заново");
+                Console.WriteLine($"[RegisterAsync] РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РґРѕР»Р¶РµРЅ СЃРѕС…СЂР°РЅРёС‚СЊ РєРѕРґ Рё РІРѕР№С‚Рё Р·Р°РЅРѕРІРѕ");
             }
             else
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка регистрации";
-                    StatusMessage = "Ошибка регистрации";
+                    LoginErrorMessage = result.ErrorMessage ?? "РћС€РёР±РєР° СЂРµРіРёСЃС‚СЂР°С†РёРё";
+                    StatusMessage = "РћС€РёР±РєР° СЂРµРіРёСЃС‚СЂР°С†РёРё";
                 });
-                Console.WriteLine($"[RegisterAsync] Ошибка: {result.ErrorMessage}");
+                Console.WriteLine($"[RegisterAsync] РћС€РёР±РєР°: {result.ErrorMessage}");
             }
         }
         catch (Exception ex)
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                LoginErrorMessage = $"Ошибка подключения к серверу";
-                StatusMessage = "Ошибка подключения";
+                LoginErrorMessage = $"РћС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє СЃРµСЂРІРµСЂСѓ";
+                StatusMessage = "РћС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ";
             });
             Console.WriteLine($"[RegisterAsync] EXCEPTION: {ex.Message}");
             Console.WriteLine($"[RegisterAsync] Stack: {ex.StackTrace}");
@@ -787,9 +784,9 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            Console.WriteLine("[LoginAsync] Начало входа");
+            Console.WriteLine("[LoginAsync] РќР°С‡Р°Р»Рѕ РІС…РѕРґР°");
 
-            // Очищаем предыдущие ошибки и скрываем recovery code
+            // РћС‡РёС‰Р°РµРј РїСЂРµРґС‹РґСѓС‰РёРµ РѕС€РёР±РєРё Рё СЃРєСЂС‹РІР°РµРј recovery code
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 LoginErrorMessage = null;
@@ -801,9 +798,9 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите имя пользователя!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ!";
                 });
-                Console.WriteLine("[LoginAsync] Ошибка: пустое имя");
+                Console.WriteLine("[LoginAsync] РћС€РёР±РєР°: РїСѓСЃС‚РѕРµ РёРјСЏ");
                 return;
             }
 
@@ -811,18 +808,18 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = "Введите пароль!";
+                    LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РїР°СЂРѕР»СЊ!";
                 });
-                Console.WriteLine("[LoginAsync] Ошибка: пустой пароль");
+                Console.WriteLine("[LoginAsync] РћС€РёР±РєР°: РїСѓСЃС‚РѕР№ РїР°СЂРѕР»СЊ");
                 return;
             }
 
-            StatusMessage = "Вход...";
-            Console.WriteLine($"[LoginAsync] Отправка запроса: {Username}");
+            StatusMessage = "Р’С…РѕРґ...";
+            Console.WriteLine($"[LoginAsync] РћС‚РїСЂР°РІРєР° Р·Р°РїСЂРѕСЃР°: {Username}");
 
             var result = await _apiService.LoginAsync(Username, Password);
 
-            Console.WriteLine($"[LoginAsync] Результат: Success={result.IsSuccess}, Error={result.ErrorMessage}");
+            Console.WriteLine($"[LoginAsync] Р РµР·СѓР»СЊС‚Р°С‚: Success={result.IsSuccess}, Error={result.ErrorMessage}");
 
             if (result.IsSuccess && result.Data != null)
             {
@@ -830,18 +827,18 @@ public class MainWindowViewModel : ViewModelBase
                 {
                     IsLoggedIn = true;
                     CurrentView = "Main";
-                    StatusMessage = $"Добро пожаловать, {result.Data.Username}!";
+                    StatusMessage = $"Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ, {result.Data.Username}!";
                     Username = result.Data.Username;
                     UserEmail = result.Data.Email;
                     LoginErrorMessage = null;
                 });
 
-                // Сохраняем токен для автоматического входа
+                // РЎРѕС…СЂР°РЅСЏРµРј С‚РѕРєРµРЅ РґР»СЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРіРѕ РІС…РѕРґР°
                 SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email);
 
-                Console.WriteLine("[LoginAsync] Вход успешен!");
+                Console.WriteLine("[LoginAsync] Р’С…РѕРґ СѓСЃРїРµС€РµРЅ!");
 
-                // Проверяем установку
+                // РџСЂРѕРІРµСЂСЏРµРј СѓСЃС‚Р°РЅРѕРІРєСѓ
                 CheckInstallation();
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
@@ -851,19 +848,19 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = result.ErrorMessage ?? "Неверное имя пользователя или пароль";
-                    StatusMessage = "Ошибка входа";
+                    LoginErrorMessage = result.ErrorMessage ?? "РќРµРІРµСЂРЅРѕРµ РёРјСЏ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РёР»Рё РїР°СЂРѕР»СЊ";
+                    StatusMessage = "РћС€РёР±РєР° РІС…РѕРґР°";
                 });
-                Console.WriteLine($"[LoginAsync] Ошибка: {result.ErrorMessage}");
-                Console.WriteLine($"[LoginAsync] LoginErrorMessage установлен: {LoginErrorMessage}");
+                Console.WriteLine($"[LoginAsync] РћС€РёР±РєР°: {result.ErrorMessage}");
+                Console.WriteLine($"[LoginAsync] LoginErrorMessage СѓСЃС‚Р°РЅРѕРІР»РµРЅ: {LoginErrorMessage}");
             }
         }
         catch (Exception ex)
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                LoginErrorMessage = $"Ошибка подключения к серверу";
-                StatusMessage = "Ошибка подключения";
+                LoginErrorMessage = $"РћС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє СЃРµСЂРІРµСЂСѓ";
+                StatusMessage = "РћС€РёР±РєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ";
             });
             Console.WriteLine($"[LoginAsync] EXCEPTION: {ex.Message}");
             Console.WriteLine($"[LoginAsync] Stack: {ex.StackTrace}");
@@ -876,26 +873,26 @@ public class MainWindowViewModel : ViewModelBase
         {
             if (string.IsNullOrWhiteSpace(Username))
             {
-                StatusMessage = "Введите имя выжившего!";
+                StatusMessage = "Р’РІРµРґРёС‚Рµ РёРјСЏ РІС‹Р¶РёРІС€РµРіРѕ!";
                 return;
             }
 
-            StatusMessage = "Аутентификация...";
+            StatusMessage = "РђСѓС‚РµРЅС‚РёС„РёРєР°С†РёСЏ...";
             var authResult = _authService.AuthenticateOffline(Username);
 
             IsLoggedIn = true;
             CurrentView = "Main";
-            StatusMessage = $"Добро пожаловать, {authResult.Username}!";
+            StatusMessage = $"Р”РѕР±СЂРѕ РїРѕР¶Р°Р»РѕРІР°С‚СЊ, {authResult.Username}!";
 
-            // Проверяем установку
+            // РџСЂРѕРІРµСЂСЏРµРј СѓСЃС‚Р°РЅРѕРІРєСѓ
             CheckInstallation();
 
-            // Проверяем версию сборки
+            // РџСЂРѕРІРµСЂСЏРµРј РІРµСЂСЃРёСЋ СЃР±РѕСЂРєРё
             await CheckModpackVersionAsync();
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка входа: {ex.Message}";
+            StatusMessage = $"РћС€РёР±РєР° РІС…РѕРґР°: {ex.Message}";
         }
     }
 
@@ -904,19 +901,19 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             var currentVersion = await _modpackUpdater.GetCurrentVersionAsync();
-            ModpackVersion = $"Сборка: v{currentVersion}";
+            ModpackVersion = $"РЎР±РѕСЂРєР°: v{currentVersion}";
 
-            // Проверяем наличие обновлений
+            // РџСЂРѕРІРµСЂСЏРµРј РЅР°Р»РёС‡РёРµ РѕР±РЅРѕРІР»РµРЅРёР№
             var hasUpdate = await _modpackUpdater.CheckForUpdatesAsync();
             if (hasUpdate)
             {
-                StatusMessage = "Доступно обновление сборки!";
+                StatusMessage = "Р”РѕСЃС‚СѓРїРЅРѕ РѕР±РЅРѕРІР»РµРЅРёРµ СЃР±РѕСЂРєРё!";
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[CheckModpackVersion] Error: {ex.Message}");
-            ModpackVersion = "Сборка: не установлена";
+            ModpackVersion = "РЎР±РѕСЂРєР°: РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅР°";
         }
     }
 
@@ -924,14 +921,14 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            StatusMessage = "Проверка обновлений сборки...";
+            StatusMessage = "РџСЂРѕРІРµСЂРєР° РѕР±РЅРѕРІР»РµРЅРёР№ СЃР±РѕСЂРєРё...";
             ProgressValue = 0;
 
             var hasUpdate = await _modpackUpdater.CheckForUpdatesAsync();
 
             if (!hasUpdate)
             {
-                StatusMessage = "У вас установлена последняя версия сборки";
+                StatusMessage = "РЈ РІР°СЃ СѓСЃС‚Р°РЅРѕРІР»РµРЅР° РїРѕСЃР»РµРґРЅСЏСЏ РІРµСЂСЃРёСЏ СЃР±РѕСЂРєРё";
                 return;
             }
 
@@ -939,19 +936,19 @@ public class MainWindowViewModel : ViewModelBase
 
             if (success)
             {
-                StatusMessage = "Сборка успешно обновлена!";
+                StatusMessage = "РЎР±РѕСЂРєР° СѓСЃРїРµС€РЅРѕ РѕР±РЅРѕРІР»РµРЅР°!";
                 await CheckModpackVersionAsync();
             }
             else
             {
-                StatusMessage = "Ошибка обновления сборки";
+                StatusMessage = "РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ СЃР±РѕСЂРєРё";
             }
 
             ProgressValue = 0;
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка обновления: {ex.Message}";
+            StatusMessage = $"РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ: {ex.Message}";
             Console.WriteLine($"[UpdateModpackAsync] ERROR: {ex.Message}");
             ProgressValue = 0;
         }
@@ -962,7 +959,7 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             Console.WriteLine($"[InstallMinecraftAsync] Starting installation to: {_minecraftDirectory}");
-            StatusMessage = "Начинаем установку...";
+            StatusMessage = "РќР°С‡РёРЅР°РµРј СѓСЃС‚Р°РЅРѕРІРєСѓ...";
             ProgressValue = 0;
 
             Console.WriteLine("[InstallMinecraftAsync] Calling InstallMinecraftAsync...");
@@ -971,7 +968,7 @@ public class MainWindowViewModel : ViewModelBase
             if (success)
             {
                 Console.WriteLine("[InstallMinecraftAsync] Minecraft installed, installing Forge...");
-                StatusMessage = "Установка Forge...";
+                StatusMessage = "РЈСЃС‚Р°РЅРѕРІРєР° Forge...";
 
                 bool forgeSuccess = false;
                 try
@@ -980,26 +977,26 @@ public class MainWindowViewModel : ViewModelBase
                     if (forgeSuccess)
                     {
                         Console.WriteLine("[InstallMinecraftAsync] Forge installed successfully!");
-                        StatusMessage = "Forge установлен!";
+                        StatusMessage = "Forge СѓСЃС‚Р°РЅРѕРІР»РµРЅ!";
                     }
                     else
                     {
                         Console.WriteLine("[InstallMinecraftAsync] Forge installation failed!");
-                        StatusMessage = "Ошибка установки Forge. Игра будет запущена в vanilla режиме.";
+                        StatusMessage = "РћС€РёР±РєР° СѓСЃС‚Р°РЅРѕРІРєРё Forge. РРіСЂР° Р±СѓРґРµС‚ Р·Р°РїСѓС‰РµРЅР° РІ vanilla СЂРµР¶РёРјРµ.";
                     }
                 }
                 catch (Exception forgeEx)
                 {
                     Console.WriteLine($"[InstallMinecraftAsync] Forge installation exception: {forgeEx.Message}");
                     Console.WriteLine($"Stack trace: {forgeEx.StackTrace}");
-                    StatusMessage = $"Ошибка Forge: {forgeEx.Message}. Игра будет в vanilla режиме.";
+                    StatusMessage = $"РћС€РёР±РєР° Forge: {forgeEx.Message}. РРіСЂР° Р±СѓРґРµС‚ РІ vanilla СЂРµР¶РёРјРµ.";
                 }
 
-                // Скачиваем модпак после установки Forge
+                // РЎРєР°С‡РёРІР°РµРј РјРѕРґРїР°Рє РїРѕСЃР»Рµ СѓСЃС‚Р°РЅРѕРІРєРё Forge
                 if (forgeSuccess)
                 {
                     Console.WriteLine("[InstallMinecraftAsync] Downloading modpack...");
-                    StatusMessage = "Скачивание сборки модов...";
+                    StatusMessage = "РЎРєР°С‡РёРІР°РЅРёРµ СЃР±РѕСЂРєРё РјРѕРґРѕРІ...";
                     ProgressValue = 0;
 
                     try
@@ -1008,25 +1005,25 @@ public class MainWindowViewModel : ViewModelBase
                         if (modpackSuccess)
                         {
                             Console.WriteLine("[InstallMinecraftAsync] Modpack installed successfully!");
-                            StatusMessage = "Установка завершена! Готов к запуску.";
+                            StatusMessage = "РЈСЃС‚Р°РЅРѕРІРєР° Р·Р°РІРµСЂС€РµРЅР°! Р“РѕС‚РѕРІ Рє Р·Р°РїСѓСЃРєСѓ.";
                             await CheckModpackVersionAsync();
                         }
                         else
                         {
                             Console.WriteLine("[InstallMinecraftAsync] Modpack installation failed!");
-                            StatusMessage = "Ошибка установки сборки. Используйте кнопку 'Обновить сборку'.";
+                            StatusMessage = "РћС€РёР±РєР° СѓСЃС‚Р°РЅРѕРІРєРё СЃР±РѕСЂРєРё. РСЃРїРѕР»СЊР·СѓР№С‚Рµ РєРЅРѕРїРєСѓ 'РћР±РЅРѕРІРёС‚СЊ СЃР±РѕСЂРєСѓ'.";
                         }
                     }
                     catch (Exception modpackEx)
                     {
                         Console.WriteLine($"[InstallMinecraftAsync] Modpack installation exception: {modpackEx.Message}");
                         Console.WriteLine($"Stack trace: {modpackEx.StackTrace}");
-                        StatusMessage = $"Ошибка сборки: {modpackEx.Message}. Используйте кнопку 'Обновить сборку'.";
+                        StatusMessage = $"РћС€РёР±РєР° СЃР±РѕСЂРєРё: {modpackEx.Message}. РСЃРїРѕР»СЊР·СѓР№С‚Рµ РєРЅРѕРїРєСѓ 'РћР±РЅРѕРІРёС‚СЊ СЃР±РѕСЂРєСѓ'.";
                     }
                 }
                 else
                 {
-                    StatusMessage = "Forge не установлен. Сборка не будет загружена.";
+                    StatusMessage = "Forge РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ. РЎР±РѕСЂРєР° РЅРµ Р±СѓРґРµС‚ Р·Р°РіСЂСѓР¶РµРЅР°.";
                 }
 
                 IsInstalled = true;
@@ -1034,13 +1031,13 @@ public class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                StatusMessage = "Ошибка установки. Проверьте подключение к сети.";
+                StatusMessage = "РћС€РёР±РєР° СѓСЃС‚Р°РЅРѕРІРєРё. РџСЂРѕРІРµСЂСЊС‚Рµ РїРѕРґРєР»СЋС‡РµРЅРёРµ Рє СЃРµС‚Рё.";
                 Console.WriteLine("[InstallMinecraftAsync] Installation failed!");
             }
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Критическая ошибка: {ex.Message}";
+            StatusMessage = $"РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР°: {ex.Message}";
             Console.WriteLine($"[InstallMinecraftAsync] EXCEPTION: {ex.Message}");
             Console.WriteLine($"[InstallMinecraftAsync] Stack trace: {ex.StackTrace}");
         }
@@ -1050,33 +1047,33 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            StatusMessage = "Подготовка к запуску...";
+            StatusMessage = "РџРѕРґРіРѕС‚РѕРІРєР° Рє Р·Р°РїСѓСЃРєСѓ...";
             GameOutput = string.Empty;
 
             var authResult = _authService.AuthenticateOffline(Username);
 
-            // CreateLaunchOptions автоматически определит Forge или vanilla
+            // CreateLaunchOptions Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РѕРїСЂРµРґРµР»РёС‚ Forge РёР»Рё vanilla
             var launchOptions = _installer.CreateLaunchOptions(authResult);
 
-            // Устанавливаем полноэкранный режим
+            // РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РїРѕР»РЅРѕСЌРєСЂР°РЅРЅС‹Р№ СЂРµР¶РёРј
             launchOptions.IsFullscreen = IsFullscreen;
 
-            // Устанавливаем выделенную RAM
+            // РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РІС‹РґРµР»РµРЅРЅСѓСЋ RAM
             launchOptions.MaxMemory = _allocatedRamGB * 1024;
             launchOptions.MinMemory = Math.Min(512, _allocatedRamGB * 512);
 
-            // Извлекаем нативные библиотеки перед запуском
-            StatusMessage = "Извлечение нативных библиотек...";
+            // РР·РІР»РµРєР°РµРј РЅР°С‚РёРІРЅС‹Рµ Р±РёР±Р»РёРѕС‚РµРєРё РїРµСЂРµРґ Р·Р°РїСѓСЃРєРѕРј
+            StatusMessage = "РР·РІР»РµС‡РµРЅРёРµ РЅР°С‚РёРІРЅС‹С… Р±РёР±Р»РёРѕС‚РµРє...";
             _installer.ExtractNatives(launchOptions.Version);
 
-            StatusMessage = "Запуск игры...";
+            StatusMessage = "Р—Р°РїСѓСЃРє РёРіСЂС‹...";
             _gameLauncher.LaunchGame(launchOptions);
 
-            StatusMessage = launchOptions.Version.Contains("forge") ? "Forge запущен! Выживайте..." : "Игра запущена! Выживайте...";
+            StatusMessage = launchOptions.Version.Contains("forge") ? "Forge Р·Р°РїСѓС‰РµРЅ! Р’С‹Р¶РёРІР°Р№С‚Рµ..." : "РРіСЂР° Р·Р°РїСѓС‰РµРЅР°! Р’С‹Р¶РёРІР°Р№С‚Рµ...";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка запуска: {ex.Message}";
+            StatusMessage = $"РћС€РёР±РєР° Р·Р°РїСѓСЃРєР°: {ex.Message}";
             Console.WriteLine($"[LaunchGameAsync] ERROR: {ex.Message}");
             Console.WriteLine($"[LaunchGameAsync] Stack trace: {ex.StackTrace}");
             IsGameRunning = false;
@@ -1085,21 +1082,21 @@ public class MainWindowViewModel : ViewModelBase
 
     private void CheckInstallation()
     {
-        // Проверяем Forge версию (приоритет)
+        // РџСЂРѕРІРµСЂСЏРµРј Forge РІРµСЂСЃРёСЋ (РїСЂРёРѕСЂРёС‚РµС‚)
         var forgeJsonPath = Path.Combine(_minecraftDirectory, "versions", "1.20.1-forge-47.3.0", "1.20.1-forge-47.3.0.json");
         var vanillaJarPath = Path.Combine(_minecraftDirectory, "versions", "1.20.1", "1.20.1.jar");
 
         bool forgeInstalled = File.Exists(forgeJsonPath);
         bool vanillaInstalled = File.Exists(vanillaJarPath);
 
-        IsInstalled = vanillaInstalled; // Для запуска нужна хотя бы vanilla
+        IsInstalled = vanillaInstalled; // Р”Р»СЏ Р·Р°РїСѓСЃРєР° РЅСѓР¶РЅР° С…РѕС‚СЏ Р±С‹ vanilla
 
         if (forgeInstalled && vanillaInstalled)
-            StatusMessage = "Minecraft 1.20.1 Forge установлен. Готов к запуску.";
+            StatusMessage = "Minecraft 1.20.1 Forge СѓСЃС‚Р°РЅРѕРІР»РµРЅ. Р“РѕС‚РѕРІ Рє Р·Р°РїСѓСЃРєСѓ.";
         else if (vanillaInstalled)
-            StatusMessage = "Minecraft установлен. Нажмите 'Проверить файлы' для установки Forge.";
+            StatusMessage = "Minecraft СѓСЃС‚Р°РЅРѕРІР»РµРЅ. РќР°Р¶РјРёС‚Рµ 'РџСЂРѕРІРµСЂРёС‚СЊ С„Р°Р№Р»С‹' РґР»СЏ СѓСЃС‚Р°РЅРѕРІРєРё Forge.";
         else
-            StatusMessage = "Требуется установка Minecraft 1.20.1 Forge";
+            StatusMessage = "РўСЂРµР±СѓРµС‚СЃСЏ СѓСЃС‚Р°РЅРѕРІРєР° Minecraft 1.20.1 Forge";
     }
 
     private async Task LoadProfileAsync()
@@ -1117,7 +1114,7 @@ public class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadProfile] Ошибка: {ex.Message}");
+            Console.WriteLine($"[LoadProfile] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1138,7 +1135,7 @@ public class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadServerStatus] Ошибка: {ex.Message}");
+            Console.WriteLine($"[LoadServerStatus] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1161,17 +1158,17 @@ public class MainWindowViewModel : ViewModelBase
         {
             if (string.IsNullOrWhiteSpace(NewNickname))
             {
-                LoginErrorMessage = "Введите новый никнейм";
+                LoginErrorMessage = "Р’РІРµРґРёС‚Рµ РЅРѕРІС‹Р№ РЅРёРєРЅРµР№Рј";
                 return;
             }
 
             if (NewNickname.Length < 3 || NewNickname.Length > 16)
             {
-                LoginErrorMessage = "Никнейм должен быть от 3 до 16 символов";
+                LoginErrorMessage = "РќРёРєРЅРµР№Рј РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РѕС‚ 3 РґРѕ 16 СЃРёРјРІРѕР»РѕРІ";
                 return;
             }
 
-            StatusMessage = "Изменение никнейма...";
+            StatusMessage = "РР·РјРµРЅРµРЅРёРµ РЅРёРєРЅРµР№РјР°...";
             var result = await _apiService.ChangeUsernameAsync(NewNickname);
 
             if (result.IsSuccess)
@@ -1182,14 +1179,14 @@ public class MainWindowViewModel : ViewModelBase
                     IsEditingNickname = false;
                     NewNickname = "";
                     LoginErrorMessage = null;
-                    StatusMessage = "Никнейм успешно изменен!";
+                    StatusMessage = "РќРёРєРЅРµР№Рј СѓСЃРїРµС€РЅРѕ РёР·РјРµРЅРµРЅ!";
                 });
 
-                // Обновляем сохраненный токен с новым никнеймом
+                // РћР±РЅРѕРІР»СЏРµРј СЃРѕС…СЂР°РЅРµРЅРЅС‹Р№ С‚РѕРєРµРЅ СЃ РЅРѕРІС‹Рј РЅРёРєРЅРµР№РјРѕРј
                 var tokenFile = GetTokenFilePath();
                 if (File.Exists(tokenFile))
                 {
-                    var data = File.ReadAllText(tokenFile).Split('|');
+                    var data = UnprotectLocalData(File.ReadAllText(tokenFile)).Split('|');
                     if (data.Length == 3)
                     {
                         SaveToken(data[0], Username, data[2]);
@@ -1200,8 +1197,8 @@ public class MainWindowViewModel : ViewModelBase
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка смены никнейма";
-                    StatusMessage = "Ошибка смены никнейма";
+                    LoginErrorMessage = result.ErrorMessage ?? "РћС€РёР±РєР° СЃРјРµРЅС‹ РЅРёРєРЅРµР№РјР°";
+                    StatusMessage = "РћС€РёР±РєР° СЃРјРµРЅС‹ РЅРёРєРЅРµР№РјР°";
                 });
             }
         }
@@ -1209,8 +1206,8 @@ public class MainWindowViewModel : ViewModelBase
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                LoginErrorMessage = $"Ошибка: {ex.Message}";
-                StatusMessage = "Ошибка смены никнейма";
+                LoginErrorMessage = $"РћС€РёР±РєР°: {ex.Message}";
+                StatusMessage = "РћС€РёР±РєР° СЃРјРµРЅС‹ РЅРёРєРЅРµР№РјР°";
             });
         }
     }
@@ -1219,7 +1216,7 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            await Task.Delay(2000); // Небольшая задержка после запуска
+            await Task.Delay(2000); // РќРµР±РѕР»СЊС€Р°СЏ Р·Р°РґРµСЂР¶РєР° РїРѕСЃР»Рµ Р·Р°РїСѓСЃРєР°
 
             var (hasUpdate, latestVersion, downloadUrl) = await _updateService.CheckForUpdatesAsync();
 
@@ -1235,7 +1232,7 @@ public class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[CheckForLauncherUpdatesAsync] Ошибка: {ex.Message}");
+            Console.WriteLine($"[CheckForLauncherUpdatesAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1245,13 +1242,13 @@ public class MainWindowViewModel : ViewModelBase
         {
             if (string.IsNullOrEmpty(_launcherUpdateUrl))
             {
-                StatusMessage = "Ошибка: URL обновления не найден";
+                StatusMessage = "РћС€РёР±РєР°: URL РѕР±РЅРѕРІР»РµРЅРёСЏ РЅРµ РЅР°Р№РґРµРЅ";
                 return;
             }
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                StatusMessage = "Обновление лаунчера...";
+                StatusMessage = "РћР±РЅРѕРІР»РµРЅРёРµ Р»Р°СѓРЅС‡РµСЂР°...";
             });
 
             _updateService.StatusChanged += (s, status) =>
@@ -1276,27 +1273,27 @@ public class MainWindowViewModel : ViewModelBase
         {
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                StatusMessage = $"Ошибка обновления: {ex.Message}";
+                StatusMessage = $"РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ: {ex.Message}";
             });
-            Console.WriteLine($"[UpdateLauncherAsync] Ошибка: {ex.Message}");
+            Console.WriteLine($"[UpdateLauncherAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
-    // Методы для работы со скинами
+    // РњРµС‚РѕРґС‹ РґР»СЏ СЂР°Р±РѕС‚С‹ СЃРѕ СЃРєРёРЅР°РјРё
     private async Task UploadSkinAsync()
     {
         try
         {
-            SkinStatus = "Выберите PNG файл скина 64x64 пикселей";
+            SkinStatus = "Р’С‹Р±РµСЂРёС‚Рµ PNG С„Р°Р№Р» СЃРєРёРЅР° 64x64 РїРёРєСЃРµР»РµР№";
 
-            // Открываем диалог выбора файла
+            // РћС‚РєСЂС‹РІР°РµРј РґРёР°Р»РѕРі РІС‹Р±РѕСЂР° С„Р°Р№Р»Р°
             var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions
             {
-                Title = "Выберите файл скина (PNG 64x64)",
+                Title = "Р’С‹Р±РµСЂРёС‚Рµ С„Р°Р№Р» СЃРєРёРЅР° (PNG 64x64)",
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
-                    new Avalonia.Platform.Storage.FilePickerFileType("PNG изображения")
+                    new Avalonia.Platform.Storage.FilePickerFileType("PNG РёР·РѕР±СЂР°Р¶РµРЅРёСЏ")
                     {
                         Patterns = new[] { "*.png" }
                     }
@@ -1309,7 +1306,7 @@ public class MainWindowViewModel : ViewModelBase
 
             if (topLevel == null)
             {
-                SkinStatus = "Ошибка: не удалось получить окно";
+                SkinStatus = "РћС€РёР±РєР°: РЅРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РѕРєРЅРѕ";
                 return;
             }
 
@@ -1317,38 +1314,38 @@ public class MainWindowViewModel : ViewModelBase
 
             if (files.Count == 0)
             {
-                SkinStatus = "Выбор файла отменен";
+                SkinStatus = "Р’С‹Р±РѕСЂ С„Р°Р№Р»Р° РѕС‚РјРµРЅРµРЅ";
                 return;
             }
 
             var filePath = files[0].Path.LocalPath;
 
-            // Валидация файла
+            // Р’Р°Р»РёРґР°С†РёСЏ С„Р°Р№Р»Р°
             if (!_skinService.ValidateSkinFile(filePath, out var error))
             {
-                SkinStatus = $"Ошибка: {error}";
+                SkinStatus = $"РћС€РёР±РєР°: {error}";
                 return;
             }
 
-            SkinStatus = "Загрузка скина на сервер...";
+            SkinStatus = "Р—Р°РіСЂСѓР·РєР° СЃРєРёРЅР° РЅР° СЃРµСЂРІРµСЂ...";
 
             var skinType = IsClassicSkin ? "classic" : "slim";
             var success = await _skinService.UploadSkinAsync(filePath, skinType);
 
             if (success)
             {
-                SkinStatus = "Скин успешно загружен!";
+                SkinStatus = "РЎРєРёРЅ СѓСЃРїРµС€РЅРѕ Р·Р°РіСЂСѓР¶РµРЅ!";
                 await LoadSkinPreviewAsync(filePath);
             }
             else
             {
-                SkinStatus = "Ошибка загрузки скина";
+                SkinStatus = "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё СЃРєРёРЅР°";
             }
         }
         catch (Exception ex)
         {
-            SkinStatus = $"Ошибка: {ex.Message}";
-            Console.WriteLine($"[UploadSkinAsync] Ошибка: {ex.Message}");
+            SkinStatus = $"РћС€РёР±РєР°: {ex.Message}";
+            Console.WriteLine($"[UploadSkinAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1361,13 +1358,13 @@ public class MainWindowViewModel : ViewModelBase
 
             if (success)
             {
-                SkinStatus = $"Скин загружен ({skinType})";
+                SkinStatus = $"РЎРєРёРЅ Р·Р°РіСЂСѓР¶РµРЅ ({skinType})";
             }
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка загрузки скина: {ex.Message}";
-            Console.WriteLine($"[UploadSkinFromFileAsync] Ошибка: {ex.Message}");
+            StatusMessage = $"РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё СЃРєРёРЅР°: {ex.Message}";
+            Console.WriteLine($"[UploadSkinFromFileAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1375,15 +1372,15 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            SkinStatus = "Выберите PNG файл плаща 64x32 пикселей";
+            SkinStatus = "Р’С‹Р±РµСЂРёС‚Рµ PNG С„Р°Р№Р» РїР»Р°С‰Р° 64x32 РїРёРєСЃРµР»РµР№";
 
             var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions
             {
-                Title = "Выберите файл плаща (PNG 64x32)",
+                Title = "Р’С‹Р±РµСЂРёС‚Рµ С„Р°Р№Р» РїР»Р°С‰Р° (PNG 64x32)",
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
-                    new Avalonia.Platform.Storage.FilePickerFileType("PNG изображения")
+                    new Avalonia.Platform.Storage.FilePickerFileType("PNG РёР·РѕР±СЂР°Р¶РµРЅРёСЏ")
                     {
                         Patterns = new[] { "*.png" }
                     }
@@ -1396,7 +1393,7 @@ public class MainWindowViewModel : ViewModelBase
 
             if (topLevel == null)
             {
-                SkinStatus = "Ошибка: не удалось получить окно";
+                SkinStatus = "РћС€РёР±РєР°: РЅРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РѕРєРЅРѕ";
                 return;
             }
 
@@ -1404,7 +1401,7 @@ public class MainWindowViewModel : ViewModelBase
 
             if (files.Count == 0)
             {
-                SkinStatus = "Выбор файла отменен";
+                SkinStatus = "Р’С‹Р±РѕСЂ С„Р°Р№Р»Р° РѕС‚РјРµРЅРµРЅ";
                 return;
             }
 
@@ -1412,27 +1409,27 @@ public class MainWindowViewModel : ViewModelBase
 
             if (!_skinService.ValidateCapeFile(filePath, out var error))
             {
-                SkinStatus = $"Ошибка: {error}";
+                SkinStatus = $"РћС€РёР±РєР°: {error}";
                 return;
             }
 
-            SkinStatus = "Загрузка плаща на сервер...";
+            SkinStatus = "Р—Р°РіСЂСѓР·РєР° РїР»Р°С‰Р° РЅР° СЃРµСЂРІРµСЂ...";
 
             var success = await _skinService.UploadCapeAsync(filePath);
 
             if (success)
             {
-                SkinStatus = "Плащ успешно загружен!";
+                SkinStatus = "РџР»Р°С‰ СѓСЃРїРµС€РЅРѕ Р·Р°РіСЂСѓР¶РµРЅ!";
             }
             else
             {
-                SkinStatus = "Ошибка загрузки плаща";
+                SkinStatus = "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РїР»Р°С‰Р°";
             }
         }
         catch (Exception ex)
         {
-            SkinStatus = $"Ошибка: {ex.Message}";
-            Console.WriteLine($"[UploadCapeAsync] Ошибка: {ex.Message}");
+            SkinStatus = $"РћС€РёР±РєР°: {ex.Message}";
+            Console.WriteLine($"[UploadCapeAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1444,13 +1441,13 @@ public class MainWindowViewModel : ViewModelBase
 
             if (success)
             {
-                SkinStatus = "Плащ загружен";
+                SkinStatus = "РџР»Р°С‰ Р·Р°РіСЂСѓР¶РµРЅ";
             }
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка загрузки плаща: {ex.Message}";
-            Console.WriteLine($"[UploadCapeFromFileAsync] Ошибка: {ex.Message}");
+            StatusMessage = $"РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РїР»Р°С‰Р°: {ex.Message}";
+            Console.WriteLine($"[UploadCapeFromFileAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1458,24 +1455,24 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            SkinStatus = "Удаление скина...";
+            SkinStatus = "РЈРґР°Р»РµРЅРёРµ СЃРєРёРЅР°...";
 
             var success = await _skinService.DeleteCurrentSkinAsync();
 
             if (success)
             {
-                SkinStatus = "Скин удален";
+                SkinStatus = "РЎРєРёРЅ СѓРґР°Р»РµРЅ";
                 CurrentSkinPreview = null;
             }
             else
             {
-                SkinStatus = "Ошибка удаления скина";
+                SkinStatus = "РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ СЃРєРёРЅР°";
             }
         }
         catch (Exception ex)
         {
-            SkinStatus = $"Ошибка удаления скина: {ex.Message}";
-            Console.WriteLine($"[DeleteSkinAsync] Ошибка: {ex.Message}");
+            SkinStatus = $"РћС€РёР±РєР° СѓРґР°Р»РµРЅРёСЏ СЃРєРёРЅР°: {ex.Message}";
+            Console.WriteLine($"[DeleteSkinAsync] РћС€РёР±РєР°: {ex.Message}");
         }
     }
 
@@ -1488,7 +1485,8 @@ public class MainWindowViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка загрузки превью: {ex.Message}");
+            Console.WriteLine($"[LoadSkinPreviewAsync] РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РїСЂРµРІСЊСЋ: {ex.Message}");
         }
     }
 }
+

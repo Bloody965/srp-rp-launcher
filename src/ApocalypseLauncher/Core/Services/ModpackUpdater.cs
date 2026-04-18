@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
@@ -35,7 +35,7 @@ public class ModpackUpdater
     {
         try
         {
-            StatusChanged?.Invoke(this, "Проверка обновлений...");
+            StatusChanged?.Invoke(this, "РџСЂРѕРІРµСЂРєР° РѕР±РЅРѕРІР»РµРЅРёР№...");
             var result = await _apiService.GetModpackVersionAsync();
 
             if (result.IsSuccess && result.Data != null)
@@ -68,35 +68,42 @@ public class ModpackUpdater
     {
         try
         {
-            StatusChanged?.Invoke(this, "Получение информации о сборке...");
+            StatusChanged?.Invoke(this, "РџРѕР»СѓС‡РµРЅРёРµ РёРЅС„РѕСЂРјР°С†РёРё Рѕ СЃР±РѕСЂРєРµ...");
             Console.WriteLine("[ModpackUpdater] Getting modpack info...");
 
             var result = await _apiService.GetModpackVersionAsync();
 
             if (!result.IsSuccess || result.Data == null)
             {
-                StatusChanged?.Invoke(this, "Ошибка получения информации о сборке");
+                StatusChanged?.Invoke(this, "РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ РёРЅС„РѕСЂРјР°С†РёРё Рѕ СЃР±РѕСЂРєРµ");
                 return false;
             }
 
             var modpackInfo = result.Data;
 
-            StatusChanged?.Invoke(this, "Скачивание сборки...");
+            StatusChanged?.Invoke(this, "РЎРєР°С‡РёРІР°РЅРёРµ СЃР±РѕСЂРєРё...");
             Console.WriteLine("[ModpackUpdater] Downloading modpack...");
 
             var tempZip = Path.Combine(Path.GetTempPath(), "modpack.zip");
 
-            // Скачиваем ZIP через защищенный API
+            // РЎРєР°С‡РёРІР°РµРј ZIP С‡РµСЂРµР· Р·Р°С‰РёС‰РµРЅРЅС‹Р№ API
             using (var httpClient = new HttpClient())
             {
+                var authToken = GetAuthToken();
+                if (string.IsNullOrWhiteSpace(authToken))
+                {
+                    StatusChanged?.Invoke(this, "Ошибка авторизации при загрузке сборки");
+                    return false;
+                }
+
                 httpClient.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GetAuthToken());
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
 
                 using (var response = await httpClient.GetAsync(modpackInfo.DownloadUrl, HttpCompletionOption.ResponseHeadersRead))
                 {
                     if (!response.IsSuccessStatusCode)
                     {
-                        StatusChanged?.Invoke(this, "Ошибка скачивания сборки");
+                        StatusChanged?.Invoke(this, "РћС€РёР±РєР° СЃРєР°С‡РёРІР°РЅРёСЏ СЃР±РѕСЂРєРё");
                         return false;
                     }
 
@@ -125,15 +132,15 @@ public class ModpackUpdater
 
             Console.WriteLine($"[ModpackUpdater] Downloaded to: {tempZip}");
 
-            // Проверка SHA256 хеша (пропускаем если хеш = "skip")
-            if (!modpackInfo.SHA256Hash.Equals("skip", StringComparison.OrdinalIgnoreCase))
+            // РџСЂРѕРІРµСЂРєР° SHA256 С…РµС€Р°
+            if (!string.IsNullOrWhiteSpace(modpackInfo.SHA256Hash))
             {
-                StatusChanged?.Invoke(this, "Проверка целостности файла...");
+                StatusChanged?.Invoke(this, "РџСЂРѕРІРµСЂРєР° С†РµР»РѕСЃС‚РЅРѕСЃС‚Рё С„Р°Р№Р»Р°...");
                 var fileHash = CalculateSHA256(tempZip);
 
                 if (!fileHash.Equals(modpackInfo.SHA256Hash, StringComparison.OrdinalIgnoreCase))
                 {
-                    StatusChanged?.Invoke(this, "Ошибка: файл поврежден!");
+                    StatusChanged?.Invoke(this, "РћС€РёР±РєР°: С„Р°Р№Р» РїРѕРІСЂРµР¶РґРµРЅ!");
                     Console.WriteLine($"[ModpackUpdater] Hash mismatch! Expected: {modpackInfo.SHA256Hash}, Got: {fileHash}");
                     try { File.Delete(tempZip); } catch { }
                     return false;
@@ -143,11 +150,13 @@ public class ModpackUpdater
             }
             else
             {
-                Console.WriteLine("[ModpackUpdater] Hash verification skipped");
+                StatusChanged?.Invoke(this, "Ошибка: для сборки не задан SHA256 хеш");
+                try { File.Delete(tempZip); } catch { }
+                return false;
             }
 
-            // Удаляем старые моды и конфиги
-            StatusChanged?.Invoke(this, "Удаление старых файлов...");
+            // РЈРґР°Р»СЏРµРј СЃС‚Р°СЂС‹Рµ РјРѕРґС‹ Рё РєРѕРЅС„РёРіРё
+            StatusChanged?.Invoke(this, "РЈРґР°Р»РµРЅРёРµ СЃС‚Р°СЂС‹С… С„Р°Р№Р»РѕРІ...");
             var modsDir = Path.Combine(_minecraftDirectory, "mods");
             var configDir = Path.Combine(_minecraftDirectory, "config");
 
@@ -163,26 +172,26 @@ public class ModpackUpdater
                 Directory.Delete(configDir, true);
             }
 
-            // Распаковываем новую сборку
-            StatusChanged?.Invoke(this, "Установка сборки...");
+            // Р Р°СЃРїР°РєРѕРІС‹РІР°РµРј РЅРѕРІСѓСЋ СЃР±РѕСЂРєСѓ
+            StatusChanged?.Invoke(this, "РЈСЃС‚Р°РЅРѕРІРєР° СЃР±РѕСЂРєРё...");
             Console.WriteLine("[ModpackUpdater] Extracting modpack...");
             ZipFile.ExtractToDirectory(tempZip, _minecraftDirectory, true);
 
-            // Сохраняем новую версию
+            // РЎРѕС…СЂР°РЅСЏРµРј РЅРѕРІСѓСЋ РІРµСЂСЃРёСЋ
             var versionFile = Path.Combine(_minecraftDirectory, "modpack_version.txt");
             await File.WriteAllTextAsync(versionFile, modpackInfo.Version);
             Console.WriteLine($"[ModpackUpdater] Updated to version: {modpackInfo.Version}");
 
-            // Удаляем временный файл
+            // РЈРґР°Р»СЏРµРј РІСЂРµРјРµРЅРЅС‹Р№ С„Р°Р№Р»
             try { File.Delete(tempZip); } catch { }
 
-            StatusChanged?.Invoke(this, "Сборка установлена!");
+            StatusChanged?.Invoke(this, "РЎР±РѕСЂРєР° СѓСЃС‚Р°РЅРѕРІР»РµРЅР°!");
             Console.WriteLine("[ModpackUpdater] Modpack installed successfully!");
             return true;
         }
         catch (Exception ex)
         {
-            StatusChanged?.Invoke(this, $"Ошибка: {ex.Message}");
+            StatusChanged?.Invoke(this, $"РћС€РёР±РєР°: {ex.Message}");
             Console.WriteLine($"[ModpackUpdater] ERROR: {ex.Message}");
             Console.WriteLine($"Stack trace: {ex.StackTrace}");
             return false;
@@ -201,7 +210,7 @@ public class ModpackUpdater
 
     private string GetAuthToken()
     {
-        // Токен будет установлен в ApiService после входа
-        return "";
+        return _apiService.GetAuthToken() ?? "";
     }
 }
+

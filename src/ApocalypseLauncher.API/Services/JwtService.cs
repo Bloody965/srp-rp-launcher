@@ -82,6 +82,13 @@ public class JwtService
         }
     }
 
+    public string HashToken(string token)
+    {
+        using var sha256 = SHA256.Create();
+        var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(hash);
+    }
+
     public static string GenerateSecureKey(int length = 64)
     {
         var randomBytes = new byte[length];
