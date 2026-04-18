@@ -18,6 +18,9 @@ var jwtSecret = builder.Configuration["Jwt:SecretKey"]
 
 Console.WriteLine($"[Startup] Environment: {builder.Environment.EnvironmentName}");
 Console.WriteLine($"[Startup] JWT Secret configured: {!string.IsNullOrWhiteSpace(jwtSecret)}");
+Console.WriteLine($"[Startup] JWT Secret length: {jwtSecret?.Length ?? 0}");
+Console.WriteLine($"[Startup] JWT Secret first 20 chars: {(jwtSecret?.Length > 20 ? jwtSecret.Substring(0, 20) : jwtSecret ?? "null")}");
+Console.WriteLine($"[Startup] Is placeholder: {jwtSecret == "CHANGE_THIS_TO_RANDOM_64_CHARACTERS_STRING_FOR_PRODUCTION"}");
 
 if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_64_CHARACTERS_STRING_FOR_PRODUCTION")
 {
