@@ -11,6 +11,7 @@
     <FileVersion>1.0.0</FileVersion>
     <RuntimeIdentifiers>win-x64;linux-x64;osx-x64</RuntimeIdentifiers>
     <PublishDir>..\..\publish-launcher\</PublishDir>
+    <Utf8Output>true</Utf8Output>
   </PropertyGroup>
 
   <ItemGroup>
