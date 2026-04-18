@@ -16,10 +16,18 @@ public class JwtService
 
     public JwtService(IConfiguration configuration)
     {
-        _secretKey = configuration["Jwt:SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey not configured");
+        // Читаем JWT secret из разных источников
+        _secretKey = configuration["Jwt:SecretKey"]
+            ?? Environment.GetEnvironmentVariable("Jwt__SecretKey")
+            ?? Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
+            ?? Environment.GetEnvironmentVariable("JWT_SECRET")
+            ?? throw new InvalidOperationException("JWT SecretKey not configured");
+
         _issuer = configuration["Jwt:Issuer"] ?? "ApocalypseLauncher.API";
         _audience = configuration["Jwt:Audience"] ?? "ApocalypseLauncher.Client";
         _expirationHours = int.Parse(configuration["Jwt:ExpirationHours"] ?? "24");
+
+        Console.WriteLine($"[JwtService] Secret key loaded, length: {_secretKey.Length}");
     }
 
     public string GenerateToken(int userId, string username, string? email)

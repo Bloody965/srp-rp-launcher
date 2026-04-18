@@ -602,6 +602,12 @@ public class MainWindowViewModel : ViewModelBase
         Console.WriteLine("[Logout] РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РІС‹С€РµР» РёР· СЃРёСЃС‚РµРјС‹");
     }
 
+    private void ShowProfile()
+    {
+        StatusMessage = "Прокрутите вниз чтобы увидеть секцию ‘Персонализация’ со скинами и плащами";
+        Console.WriteLine("[ShowProfile] Показана подсказка о секции персонализации");
+    }
+
     private void ShowResetPassword()
     {
         IsResettingPassword = true;

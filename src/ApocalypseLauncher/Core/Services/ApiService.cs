@@ -29,7 +29,8 @@ public class ApiService
         }
 
         // Certificate pinning для защиты от MITM
-        var certificatePinning = new Security.CertificatePinning(isDevelopment);
+        // ВРЕМЕННО ОТКЛЮЧЕНО ДЛЯ ОТЛАДКИ
+        var certificatePinning = new Security.CertificatePinning(true); // Всегда dev mode
         var handler = certificatePinning.CreateSecureHandler();
 
         _httpClient = new HttpClient(handler)
