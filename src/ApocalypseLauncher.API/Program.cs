@@ -9,16 +9,27 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 var isDevelopment = builder.Environment.IsDevelopment();
-var jwtSecret = builder.Configuration["Jwt:SecretKey"];
+
+// Читаем JWT Secret из разных источников (для совместимости с Railway)
+var jwtSecret = builder.Configuration["Jwt:SecretKey"]
+    ?? Environment.GetEnvironmentVariable("Jwt__SecretKey")
+    ?? Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
+    ?? Environment.GetEnvironmentVariable("JWT_SECRET");
+
+Console.WriteLine($"[Startup] Environment: {builder.Environment.EnvironmentName}");
+Console.WriteLine($"[Startup] JWT Secret configured: {!string.IsNullOrWhiteSpace(jwtSecret)}");
+
 if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_64_CHARACTERS_STRING_FOR_PRODUCTION")
 {
     if (!isDevelopment)
     {
+        Console.WriteLine("[ERROR] JWT SecretKey is not configured for production.");
+        Console.WriteLine("[ERROR] Checked variables: Jwt:SecretKey, Jwt__SecretKey, JWT_SECRET_KEY, JWT_SECRET");
         throw new InvalidOperationException("JWT SecretKey is not configured for production.");
     }
 
     jwtSecret = JwtService.GenerateSecureKey();
-    Console.WriteLine("Using temporary JWT secret for development environment.");
+    Console.WriteLine("[Startup] Using temporary JWT secret for development environment.");
 }
 
 var databaseUrl = builder.Configuration.GetConnectionString("DATABASE_URL")
