@@ -397,17 +397,25 @@ public class SkinsController : ControllerBase
 
     private async Task LogAction(int userId, string action, string? details, string ip)
     {
-        var log = new AuditLog
+        try
         {
-            UserId = userId,
-            Action = action,
-            Details = details,
-            IpAddress = ip,
-            CreatedAt = DateTime.UtcNow
-        };
+            var log = new AuditLog
+            {
+                UserId = userId,
+                Action = action,
+                Details = details,
+                IpAddress = ip,
+                CreatedAt = DateTime.UtcNow
+            };
 
-        _context.AuditLogs.Add(log);
-        await _context.SaveChangesAsync();
+            _context.AuditLogs.Add(log);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            // Игнорируем ошибки логирования чтобы не ломать основной функционал
+            Console.WriteLine($"[LogAction] Failed to log action: {ex.Message}");
+        }
     }
 
     private async Task<string> CalculateSHA256Async(Stream stream)
