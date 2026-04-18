@@ -71,6 +71,7 @@ public class MainWindowViewModel : ViewModelBase
         UpdateLauncherCommand = ReactiveCommand.CreateFromTask(UpdateLauncherAsync);
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
         LogoutCommand = ReactiveCommand.Create(Logout);
+        ShowProfileCommand = ReactiveCommand.Create(ShowProfile);
         ResetPasswordCommand = ReactiveCommand.Create(ShowResetPassword);
         ConfirmResetPasswordCommand = ReactiveCommand.CreateFromTask(ConfirmResetPasswordAsync);
         CancelResetCommand = ReactiveCommand.Create(CancelReset);
@@ -524,6 +525,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> UpdateLauncherCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleRegisterCommand { get; }
     public ReactiveCommand<Unit, Unit> LogoutCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowProfileCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetPasswordCommand { get; }
     public ReactiveCommand<Unit, Unit> ConfirmResetPasswordCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelResetCommand { get; }
