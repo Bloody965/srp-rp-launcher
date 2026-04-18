@@ -20,7 +20,8 @@ COPY --from=publish /app/publish .
 # Создаём папки для данных
 RUN mkdir -p /app/data /app/modpacks
 
-ENV ASPNETCORE_URLS=http://0.0.0.0:5000
+ENV ASPNETCORE_URLS=http://0.0.0.0:$PORT
 ENV ASPNETCORE_ENVIRONMENT=Production
+ENV PORT=5000
 
 ENTRYPOINT ["dotnet", "ApocalypseLauncher.API.dll"]
