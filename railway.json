@@ -1,0 +1,12 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "cd src/ApocalypseLauncher.API && dotnet restore && dotnet publish -c Release -o /app/out"
+  },
+  "deploy": {
+    "startCommand": "cd /app/out && dotnet ApocalypseLauncher.API.dll",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
