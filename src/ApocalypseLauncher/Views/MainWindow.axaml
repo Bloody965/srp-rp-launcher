@@ -228,8 +228,7 @@
                                             <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#E3B39C" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"/>
                                         </Border>
 
-                                        <Button Content="ОТПРАВИТЬ КОД" Command="{Binding SendResetCodeCommand}" Classes="primaryButton" Height="58" IsVisible="{Binding !ResetCodeSent}"/>
-                                        <Button Content="СОХРАНИТЬ НОВЫЙ ПАРОЛЬ" Command="{Binding ConfirmResetPasswordCommand}" Classes="primaryButton" Height="58" IsVisible="{Binding ResetCodeSent}"/>
+                                        <Button Content="СОХРАНИТЬ НОВЫЙ ПАРОЛЬ" Command="{Binding ConfirmResetPasswordCommand}" Classes="primaryButton" Height="58"/>
                                         <Button Content="НАЗАД КО ВХОДУ" Command="{Binding CancelResetCommand}" Classes="ghostButton" Height="48"/>
                                     </StackPanel>
                                 </Grid>

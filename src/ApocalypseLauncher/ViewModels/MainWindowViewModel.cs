@@ -69,7 +69,7 @@ public class MainWindowViewModel : ViewModelBase
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
         LogoutCommand = ReactiveCommand.Create(Logout);
         ResetPasswordCommand = ReactiveCommand.Create(ShowResetPassword);
-        SendResetCodeCommand = ReactiveCommand.CreateFromTask(SendResetCodeAsync);
+        SendResetCodeCommand = ReactiveCommand.Create(() => { });
         ConfirmResetPasswordCommand = ReactiveCommand.CreateFromTask(ConfirmResetPasswordAsync);
         CancelResetCommand = ReactiveCommand.Create(CancelReset);
         EditNicknameCommand = ReactiveCommand.Create(StartEditNickname);
@@ -603,12 +603,11 @@ public class MainWindowViewModel : ViewModelBase
     private void ShowResetPassword()
     {
         IsResettingPassword = true;
-        ResetCodeSent = false;
-        Email = "";
-        ResetCode = "";
+        ResetCodeSent = true;
         NewPassword = "";
+        RecoveryCode = "";
         LoginErrorMessage = null;
-        StatusMessage = "Введите email для сброса пароля";
+        StatusMessage = "Введите имя пользователя, код восстановления и новый пароль";
         Console.WriteLine("[ShowResetPassword] Открыт экран сброса пароля");
     }
 
@@ -616,66 +615,11 @@ public class MainWindowViewModel : ViewModelBase
     {
         IsResettingPassword = false;
         ResetCodeSent = false;
-        Email = "";
-        ResetCode = "";
+        RecoveryCode = "";
         NewPassword = "";
         LoginErrorMessage = null;
         StatusMessage = "Вход в аккаунт";
         Console.WriteLine("[CancelReset] Отмена сброса пароля");
-    }
-
-    private async Task SendResetCodeAsync()
-    {
-        try
-        {
-            Console.WriteLine("[SendResetCodeAsync] Отправка кода");
-
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = null;
-            });
-
-            if (string.IsNullOrWhiteSpace(Email))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите email!";
-                });
-                return;
-            }
-
-            StatusMessage = "Отправка кода на почту...";
-            var result = await _apiService.RequestResetCodeAsync(Email);
-
-            if (result.IsSuccess)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    ResetCodeSent = true;
-                    LoginErrorMessage = null;
-                    StatusMessage = "Код отправлен! Проверьте почту.";
-                });
-                Console.WriteLine("[SendResetCodeAsync] Код отправлен");
-            }
-            else
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка отправки кода";
-                    StatusMessage = "Ошибка";
-                });
-                Console.WriteLine($"[SendResetCodeAsync] Ошибка: {result.ErrorMessage}");
-            }
-        }
-        catch (Exception ex)
-        {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = $"Ошибка: {ex.Message}";
-                StatusMessage = "Ошибка";
-            });
-            Console.WriteLine($"[SendResetCodeAsync] EXCEPTION: {ex.Message}");
-        }
     }
 
     private async Task ConfirmResetPasswordAsync()

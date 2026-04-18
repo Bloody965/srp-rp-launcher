@@ -22,18 +22,22 @@ public class JwtService
         _expirationHours = int.Parse(configuration["Jwt:ExpirationHours"] ?? "24");
     }
 
-    public string GenerateToken(int userId, string username, string email)
+    public string GenerateToken(int userId, string username, string? email)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.UTF8.GetBytes(_secretKey);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
             new Claim(ClaimTypes.Name, username),
-            new Claim(ClaimTypes.Email, email),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
+        if (!string.IsNullOrWhiteSpace(email))
+        {
+            claims.Add(new Claim(ClaimTypes.Email, email));
+        }
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {

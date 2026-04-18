@@ -11,6 +11,10 @@ public class ApiService
 {
     private readonly HttpClient _httpClient;
     private string? _authToken;
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public ApiService(string baseUrl = "http://localhost:5000")
     {
@@ -49,7 +53,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                var result = await TryReadJsonAsync<AuthResponseDto>(response);
                 if (result?.Success == true && result.Token != null)
                 {
                     SetAuthToken(result.Token);
@@ -62,14 +66,14 @@ public class ApiService
                         UUID = result.User?.MinecraftUUID ?? "",
                         AccessToken = result.Token,
                         IsOffline = false,
-                        RecoveryCode = result.RecoveryCode // Код восстановления
+                        RecoveryCode = result.RecoveryCode
                     });
                 }
-                return ApiResponse<AuthResult>.Failure(result?.Message ?? "Ошибка регистрации");
+
+                return ApiResponse<AuthResult>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка регистрации"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<AuthResult>.Failure(error?.Message ?? "Ошибка регистрации");
+            return ApiResponse<AuthResult>.Failure(await ReadErrorMessageAsync(response, "Ошибка регистрации"));
         }
         catch (Exception ex)
         {
@@ -79,6 +83,7 @@ public class ApiService
             {
                 Console.WriteLine($"[ApiService.RegisterAsync] Inner: {ex.InnerException.Message}");
             }
+
             return ApiResponse<AuthResult>.Failure($"Ошибка подключения: {ex.Message}");
         }
     }
@@ -92,7 +97,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                var result = await TryReadJsonAsync<AuthResponseDto>(response);
                 if (result?.Success == true && result.Token != null)
                 {
                     SetAuthToken(result.Token);
@@ -107,11 +112,11 @@ public class ApiService
                         IsOffline = false
                     });
                 }
-                return ApiResponse<AuthResult>.Failure(result?.Message ?? "Ошибка входа");
+
+                return ApiResponse<AuthResult>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка входа"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<AuthResult>.Failure(error?.Message ?? "Неверное имя пользователя или пароль");
+            return ApiResponse<AuthResult>.Failure(await ReadErrorMessageAsync(response, "Неверное имя пользователя или пароль"));
         }
         catch (Exception ex)
         {
@@ -146,7 +151,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<ModpackInfoDto>();
+                var result = await TryReadJsonAsync<ModpackInfoDto>(response);
                 if (result != null)
                 {
                     return ApiResponse<ModpackInfo>.Success(new ModpackInfo
@@ -177,16 +182,16 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                var result = await TryReadJsonAsync<AuthResponseDto>(response);
                 if (result?.Success == true)
                 {
                     return ApiResponse<string>.Success(result.Message ?? "Код отправлен на почту");
                 }
-                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка отправки кода");
+
+                return ApiResponse<string>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка отправки кода"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка отправки кода");
+            return ApiResponse<string>.Failure(await ReadErrorMessageAsync(response, "Ошибка отправки кода"));
         }
         catch (Exception ex)
         {
@@ -203,16 +208,16 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                var result = await TryReadJsonAsync<AuthResponseDto>(response);
                 if (result?.Success == true)
                 {
                     return ApiResponse<string>.Success(result.Message ?? "Пароль успешно изменен");
                 }
-                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка сброса пароля");
+
+                return ApiResponse<string>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка сброса пароля"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка сброса пароля");
+            return ApiResponse<string>.Failure(await ReadErrorMessageAsync(response, "Ошибка сброса пароля"));
         }
         catch (Exception ex)
         {
@@ -228,7 +233,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<ProfileResponseDto>();
+                var result = await TryReadJsonAsync<ProfileResponseDto>(response);
                 if (result?.Success == true)
                 {
                     return ApiResponse<ProfileInfo>.Success(new ProfileInfo
@@ -259,16 +264,16 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+                var result = await TryReadJsonAsync<AuthResponseDto>(response);
                 if (result?.Success == true)
                 {
                     return ApiResponse<string>.Success(result.Message ?? "Никнейм изменен");
                 }
-                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка смены никнейма");
+
+                return ApiResponse<string>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка смены никнейма"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка смены никнейма");
+            return ApiResponse<string>.Failure(await ReadErrorMessageAsync(response, "Ошибка смены никнейма"));
         }
         catch (Exception ex)
         {
@@ -304,7 +309,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<ServerStatusDto>();
+                var result = await TryReadJsonAsync<ServerStatusDto>(response);
                 if (result != null)
                 {
                     return ApiResponse<ServerStatus>.Success(new ServerStatus
@@ -326,7 +331,6 @@ public class ApiService
         }
     }
 
-    // Skins API
     public async Task<ApiResponse<SkinInfo>> UploadSkinAsync(byte[] skinData, string skinType)
     {
         try
@@ -341,7 +345,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<SkinUploadResponse>();
+                var result = await TryReadJsonAsync<SkinUploadResponse>(response);
                 if (result?.Success == true && result.Skin != null)
                 {
                     return ApiResponse<SkinInfo>.Success(new SkinInfo
@@ -352,11 +356,11 @@ public class ApiService
                         UploadedAt = result.Skin.UploadedAt
                     });
                 }
-                return ApiResponse<SkinInfo>.Failure(result?.Message ?? "Ошибка загрузки скина");
+
+                return ApiResponse<SkinInfo>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка загрузки скина"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<SkinUploadResponse>();
-            return ApiResponse<SkinInfo>.Failure(error?.Message ?? "Ошибка загрузки скина");
+            return ApiResponse<SkinInfo>.Failure(await ReadErrorMessageAsync(response, "Ошибка загрузки скина"));
         }
         catch (Exception ex)
         {
@@ -372,7 +376,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<SkinResponse>();
+                var result = await TryReadJsonAsync<SkinResponse>(response);
                 if (result?.Success == true && result.Skin != null)
                 {
                     return ApiResponse<SkinInfo>.Success(new SkinInfo
@@ -445,7 +449,7 @@ public class ApiService
 
             if (response.IsSuccessStatusCode)
             {
-                var result = await response.Content.ReadFromJsonAsync<CapeUploadResponse>();
+                var result = await TryReadJsonAsync<CapeUploadResponse>(response);
                 if (result?.Success == true && result.Cape != null)
                 {
                     return ApiResponse<CapeInfo>.Success(new CapeInfo
@@ -455,11 +459,11 @@ public class ApiService
                         UploadedAt = result.Cape.UploadedAt
                     });
                 }
-                return ApiResponse<CapeInfo>.Failure(result?.Message ?? "Ошибка загрузки плаща");
+
+                return ApiResponse<CapeInfo>.Failure(result?.Message ?? await ReadErrorMessageAsync(response, "Ошибка загрузки плаща"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<CapeUploadResponse>();
-            return ApiResponse<CapeInfo>.Failure(error?.Message ?? "Ошибка загрузки плаща");
+            return ApiResponse<CapeInfo>.Failure(await ReadErrorMessageAsync(response, "Ошибка загрузки плаща"));
         }
         catch (Exception ex)
         {
@@ -486,16 +490,65 @@ public class ApiService
             return null;
         }
     }
+
+    private static async Task<T?> TryReadJsonAsync<T>(HttpResponseMessage response)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return default;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(content, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return default;
+        }
+    }
+
+    private static async Task<string> ReadErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)
+    {
+        var content = await response.Content.ReadAsStringAsync();
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return $"{fallbackMessage}: сервер вернул пустой ответ ({(int)response.StatusCode})";
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("message", out var messageElement))
+            {
+                var message = messageElement.GetString();
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    return message;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        var shortened = content.Length > 180 ? content[..180] + "..." : content;
+        return $"{fallbackMessage}: сервер вернул невалидный ответ ({(int)response.StatusCode}) - {shortened}";
+    }
 }
 
-// DTOs
 public class AuthResponseDto
 {
     public bool Success { get; set; }
     public string? Token { get; set; }
     public string? Message { get; set; }
     public UserInfoDto? User { get; set; }
-    public string? RecoveryCode { get; set; } // Код восстановления
+    public string? RecoveryCode { get; set; }
 }
 
 public class UserInfoDto
@@ -535,7 +588,6 @@ public class ServerStatusDto
     public string Motd { get; set; } = "";
 }
 
-// Response wrapper
 public class ApiResponse<T>
 {
     public bool IsSuccess { get; set; }
@@ -546,7 +598,6 @@ public class ApiResponse<T>
     public static ApiResponse<T> Failure(string error) => new() { IsSuccess = false, ErrorMessage = error };
 }
 
-// ModpackInfo model
 public class ModpackInfo
 {
     public string Version { get; set; } = "";
@@ -556,7 +607,6 @@ public class ModpackInfo
     public string? Changelog { get; set; }
 }
 
-// ProfileInfo model
 public class ProfileInfo
 {
     public string Username { get; set; } = "";
@@ -566,7 +616,6 @@ public class ProfileInfo
     public DateTime? LastLoginAt { get; set; }
 }
 
-// ServerStatus model
 public class ServerStatus
 {
     public bool IsOnline { get; set; }
@@ -576,7 +625,6 @@ public class ServerStatus
     public string Motd { get; set; } = "";
 }
 
-// SkinInfo model
 public class SkinInfo
 {
     public string SkinType { get; set; } = "";
@@ -585,7 +633,6 @@ public class SkinInfo
     public DateTime UploadedAt { get; set; }
 }
 
-// CapeInfo model
 public class CapeInfo
 {
     public string DownloadUrl { get; set; } = "";
@@ -593,7 +640,6 @@ public class CapeInfo
     public DateTime UploadedAt { get; set; }
 }
 
-// Skin DTOs
 public class SkinUploadResponse
 {
     public bool Success { get; set; }
@@ -615,7 +661,6 @@ public class SkinDto
     public DateTime UploadedAt { get; set; }
 }
 
-// Cape DTOs
 public class CapeUploadResponse
 {
     public bool Success { get; set; }
