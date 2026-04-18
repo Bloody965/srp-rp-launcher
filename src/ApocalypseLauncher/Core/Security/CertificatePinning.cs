@@ -14,14 +14,13 @@ namespace ApocalypseLauncher.Core.Security;
 public class CertificatePinning
 {
     // SHA256 хеши публичных ключей доверенных сертификатов
-    // ВАЖНО: Обновите эти хеши для вашего production сервера!
     private static readonly HashSet<string> TrustedCertificateHashes = new()
     {
-        // Пример: хеш для localhost разработки (замените на реальный!)
-        "DEVELOPMENT_CERTIFICATE_HASH_PLACEHOLDER",
+        // Railway production certificate
+        "VYxe9LAwK2QozwAdcQXon+QWur/Wn6o01PdWoMq1jiw=",
 
-        // Добавьте хеши ваших production сертификатов здесь
-        // Получить хеш: openssl s_client -connect your-domain.com:443 | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+        // Development localhost (для тестирования)
+        "DEVELOPMENT_CERTIFICATE_HASH_PLACEHOLDER"
     };
 
     private readonly bool _isDevelopment;

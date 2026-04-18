@@ -17,7 +17,7 @@ public class ApiService
         PropertyNameCaseInsensitive = true
     };
 
-    public ApiService(string baseUrl = "https://localhost:7000")
+    public ApiService(string baseUrl = "https://srp-rp-launcher-production.up.railway.app")
     {
         // Проверка что используется HTTPS (кроме localhost для разработки)
         var uri = new Uri(baseUrl);
