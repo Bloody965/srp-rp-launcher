@@ -38,6 +38,10 @@ if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_
 var databaseUrl = builder.Configuration.GetConnectionString("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_URL");
 
+Console.WriteLine($"[Startup] DATABASE_URL configured: {!string.IsNullOrEmpty(databaseUrl)}");
+Console.WriteLine($"[Startup] DATABASE_URL length: {databaseUrl?.Length ?? 0}");
+Console.WriteLine($"[Startup] DATABASE_URL first 50 chars: {(databaseUrl?.Length > 50 ? databaseUrl.Substring(0, 50) : databaseUrl ?? "null")}");
+
 if (!string.IsNullOrEmpty(databaseUrl))
 {
     Console.WriteLine("Using PostgreSQL database");
