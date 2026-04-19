@@ -1645,7 +1645,43 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            // Загружаем изображение и конвертируем в правильный формат
+            // Сначала пробуем загрузить 3D рендер с нашего сервера
+            try
+            {
+                var result = await _apiService.GetCurrentSkinAsync();
+                if (result.IsSuccess && result.Data != null && !string.IsNullOrEmpty(result.Data.DownloadUrl))
+                {
+                    // Формируем полный URL скина
+                    var skinUrl = result.Data.DownloadUrl.StartsWith("http")
+                        ? result.Data.DownloadUrl
+                        : $"https://srp-rp-launcher-production.up.railway.app{result.Data.DownloadUrl}";
+
+                    // Используем внешний API для 3D рендера скина
+                    // visage.surgeplay.com - бесплатный API для рендера Minecraft скинов
+                    var renderUrl = $"https://visage.surgeplay.com/full/200/{Uri.EscapeDataString(skinUrl)}";
+
+                    Console.WriteLine($"[LoadSkinPreviewAsync] Загрузка 3D рендера: {renderUrl}");
+
+                    var renderBytes = await _httpClient.GetByteArrayAsync(renderUrl);
+                    using var renderStream = new MemoryStream(renderBytes);
+                    var renderBitmap = new Avalonia.Media.Imaging.Bitmap(renderStream);
+
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        CurrentSkinPreview = renderBitmap;
+                    });
+
+                    Console.WriteLine($"[LoadSkinPreviewAsync] 3D рендер успешно загружен");
+                    return;
+                }
+            }
+            catch (Exception apiEx)
+            {
+                Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка загрузки 3D рендера: {apiEx.Message}");
+                // Продолжаем с fallback
+            }
+
+            // Fallback: загружаем обычное изображение скина
             using var fileStream = File.OpenRead(filePath);
             var bitmap = new Avalonia.Media.Imaging.Bitmap(fileStream);
 
@@ -1665,7 +1701,7 @@ public class MainWindowViewModel : ViewModelBase
                 CurrentSkinPreview = renderTarget;
             });
 
-            Console.WriteLine($"[LoadSkinPreviewAsync] Превью загружено: {bitmap.PixelSize.Width}x{bitmap.PixelSize.Height}");
+            Console.WriteLine($"[LoadSkinPreviewAsync] Fallback превью загружено: {bitmap.PixelSize.Width}x{bitmap.PixelSize.Height}");
         }
         catch (Exception ex)
         {
