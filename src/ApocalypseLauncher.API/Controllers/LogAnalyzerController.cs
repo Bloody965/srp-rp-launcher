@@ -37,8 +37,8 @@ public class LogAnalyzerController : ControllerBase
                 ? request.Logs.Substring(request.Logs.Length - 10000)
                 : request.Logs;
 
-            var apiKey = _configuration["DeepSeek:ApiKey"]
-                ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+            var apiKey = _configuration["Groq:ApiKey"]
+                ?? Environment.GetEnvironmentVariable("GROQ_API_KEY");
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
@@ -51,7 +51,7 @@ public class LogAnalyzerController : ControllerBase
 
             var requestBody = new
             {
-                model = "deepseek-chat",
+                model = "llama-3.1-70b-versatile",
                 messages = new[]
                 {
                     new
@@ -75,7 +75,7 @@ public class LogAnalyzerController : ControllerBase
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
             var response = await _httpClient.PostAsync(
-                "https://api.deepseek.com/v1/chat/completions",
+                "https://api.groq.com/openai/v1/chat/completions",
                 new StringContent(
                     JsonSerializer.Serialize(requestBody),
                     Encoding.UTF8,
@@ -86,7 +86,7 @@ public class LogAnalyzerController : ControllerBase
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"DeepSeek API error: {response.StatusCode} - {error}");
+                _logger.LogError($"Groq API error: {response.StatusCode} - {error}");
 
                 return Ok(new
                 {
