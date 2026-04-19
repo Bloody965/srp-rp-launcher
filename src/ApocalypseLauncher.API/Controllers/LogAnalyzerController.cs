@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text;
 using System.Text.Json;
+using ApocalypseLauncher.API.Services;
 
 namespace ApocalypseLauncher.API.Controllers;
 
