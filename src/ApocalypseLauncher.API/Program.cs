@@ -137,6 +137,40 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
     Console.WriteLine("Database initialized successfully");
 
+    // Добавляем колонку FileData если её нет (миграция схемы)
+    try
+    {
+        // Проверяем и добавляем FileData в PlayerSkins
+        db.Database.ExecuteSqlRaw(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name='PlayerSkins' AND column_name='FileData') THEN
+                    ALTER TABLE ""PlayerSkins"" ADD COLUMN ""FileData"" bytea NULL;
+                    RAISE NOTICE 'Added FileData column to PlayerSkins';
+                END IF;
+            END $$;
+        ");
+
+        // Проверяем и добавляем FileData в PlayerCapes
+        db.Database.ExecuteSqlRaw(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name='PlayerCapes' AND column_name='FileData') THEN
+                    ALTER TABLE ""PlayerCapes"" ADD COLUMN ""FileData"" bytea NULL;
+                    RAISE NOTICE 'Added FileData column to PlayerCapes';
+                END IF;
+            END $$;
+        ");
+
+        Console.WriteLine("Schema migration completed successfully");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Warning: Schema migration failed: {ex.Message}");
+    }
+
     // Удаляем старые скины и плащи без FileData (миграция данных)
     try
     {
