@@ -94,24 +94,21 @@ public class SkinsController : ControllerBase
                 oldSkin.IsActive = false;
             }
 
-            // Сохраняем файл
-            var fileName = $"{userId}_{DateTime.UtcNow.Ticks}.png";
-            var filePath = Path.Combine(_storageBasePath, "skins", fileName);
-
+            // Читаем файл в память
             stream.Position = 0;
-            using (var fileStream = new FileStream(filePath, FileMode.Create))
-            {
-                await stream.CopyToAsync(fileStream);
-            }
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            var fileData = memoryStream.ToArray();
 
-            // Создаем запись в БД
+            // Создаем запись в БД с данными файла
             var playerSkin = new PlayerSkin
             {
                 UserId = userId.Value,
                 SkinType = skinType,
-                FileName = fileName,
+                FileName = $"{userId}_{DateTime.UtcNow.Ticks}.png",
                 FileHash = fileHash,
                 FileSizeBytes = skin.Length,
+                FileData = fileData,
                 UploadedAt = DateTime.UtcNow,
                 IsActive = true
             };
@@ -121,7 +118,7 @@ public class SkinsController : ControllerBase
 
             await LogAction(userId.Value, "SKIN_UPLOADED", $"Type: {skinType}, Size: {skin.Length} bytes", ip);
 
-            _logger.LogInformation($"User {userId} uploaded skin: {fileName}");
+            _logger.LogInformation($"User {userId} uploaded skin to database: {playerSkin.FileName}");
 
             return Ok(new
             {
@@ -215,16 +212,13 @@ public class SkinsController : ControllerBase
             return NotFound();
         }
 
-        var filePath = Path.Combine(_storageBasePath, "skins", skin.FileName);
-
-        if (!System.IO.File.Exists(filePath))
+        if (skin.FileData == null || skin.FileData.Length == 0)
         {
-            _logger.LogWarning($"Skin file not found: {filePath}");
+            _logger.LogWarning($"Skin data is empty for user {userId}");
             return NotFound();
         }
 
-        var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-        return File(fileStream, "image/png", $"skin_{userId}.png");
+        return File(skin.FileData, "image/png", $"skin_{userId}.png");
     }
 
     [HttpDelete("current")]
@@ -247,16 +241,9 @@ public class SkinsController : ControllerBase
 
         try
         {
-            // Деактивируем скин
+            // Деактивируем скин (данные остаются в БД)
             skin.IsActive = false;
             await _context.SaveChangesAsync();
-
-            // Удаляем файл
-            var filePath = Path.Combine(_storageBasePath, "skins", skin.FileName);
-            if (System.IO.File.Exists(filePath))
-            {
-                System.IO.File.Delete(filePath);
-            }
 
             await LogAction(userId.Value, "SKIN_DELETED", null, ip);
 
@@ -316,23 +303,20 @@ public class SkinsController : ControllerBase
                 oldCape.IsActive = false;
             }
 
-            // Сохраняем файл
-            var fileName = $"{userId}_{DateTime.UtcNow.Ticks}.png";
-            var filePath = Path.Combine(_storageBasePath, "capes", fileName);
-
+            // Читаем файл в память
             stream.Position = 0;
-            using (var fileStream = new FileStream(filePath, FileMode.Create))
-            {
-                await stream.CopyToAsync(fileStream);
-            }
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            var fileData = memoryStream.ToArray();
 
-            // Создаем запись в БД
+            // Создаем запись в БД с данными файла
             var playerCape = new PlayerCape
             {
                 UserId = userId.Value,
-                FileName = fileName,
+                FileName = $"{userId}_{DateTime.UtcNow.Ticks}.png",
                 FileHash = fileHash,
                 FileSizeBytes = cape.Length,
+                FileData = fileData,
                 UploadedAt = DateTime.UtcNow,
                 IsActive = true
             };
@@ -376,15 +360,13 @@ public class SkinsController : ControllerBase
             return NotFound();
         }
 
-        var filePath = Path.Combine(_storageBasePath, "capes", cape.FileName);
-
-        if (!System.IO.File.Exists(filePath))
+        if (cape.FileData == null || cape.FileData.Length == 0)
         {
+            _logger.LogWarning($"Cape data is empty for user {userId}");
             return NotFound();
         }
 
-        var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-        return File(fileStream, "image/png", $"cape_{userId}.png");
+        return File(cape.FileData, "image/png", $"cape_{userId}.png");
     }
 
     private int? GetUserId()

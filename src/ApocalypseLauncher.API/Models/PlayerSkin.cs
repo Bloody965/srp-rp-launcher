@@ -25,6 +25,9 @@ public class PlayerSkin
 
     public long FileSizeBytes { get; set; }
 
+    // Хранение файла в базе данных
+    public byte[]? FileData { get; set; }
+
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;
 
     public bool IsActive { get; set; } = true;
