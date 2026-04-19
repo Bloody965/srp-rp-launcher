@@ -136,6 +136,26 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
     Console.WriteLine("Database initialized successfully");
+
+    // Удаляем старые скины и плащи без FileData (миграция данных)
+    try
+    {
+        var oldSkins = db.PlayerSkins.Where(s => s.FileData == null).ToList();
+        var oldCapes = db.PlayerCapes.Where(c => c.FileData == null).ToList();
+
+        if (oldSkins.Count > 0 || oldCapes.Count > 0)
+        {
+            Console.WriteLine($"Cleaning up {oldSkins.Count} old skins and {oldCapes.Count} old capes without FileData...");
+            db.PlayerSkins.RemoveRange(oldSkins);
+            db.PlayerCapes.RemoveRange(oldCapes);
+            db.SaveChanges();
+            Console.WriteLine("Old skins and capes cleaned up successfully");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Warning: Failed to clean up old skins/capes: {ex.Message}");
+    }
 }
 
 app.UseForwardedHeaders();
