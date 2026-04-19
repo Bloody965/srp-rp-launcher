@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Reactive;
 using System.Threading.Tasks;
 using ApocalypseLauncher.Core.Models;
@@ -15,12 +16,12 @@ public class MainWindowViewModel : ViewModelBase
     private MinecraftInstaller _installer;
     private readonly GameLauncher _gameLauncher;
     private readonly FolderPickerService _folderPicker;
-    private readonly AudioService _audioService;
     private ModpackUpdater _modpackUpdater;
     private readonly ApiService _apiService;
     private readonly LauncherUpdateService _updateService;
     private SkinService _skinService;
     private string _minecraftDirectory;
+    private readonly HttpClient _httpClient;
 
     public MainWindowViewModel()
     {
@@ -30,11 +31,11 @@ public class MainWindowViewModel : ViewModelBase
         _authService = new AuthService();
         _installer = new MinecraftInstaller(_minecraftDirectory);
         _gameLauncher = new GameLauncher();
-        _audioService = new AudioService();
         _apiService = new ApiService("https://srp-rp-launcher-production.up.railway.app");
         _modpackUpdater = new ModpackUpdater(_minecraftDirectory, _apiService);
         _updateService = new LauncherUpdateService();
         _skinService = new SkinService(_apiService, _minecraftDirectory);
+        _httpClient = new HttpClient();
 
         // Подписываемся на события
         _installer.StatusChanged += (s, status) => StatusMessage = status;
@@ -192,6 +193,7 @@ public class MainWindowViewModel : ViewModelBase
                 CheckInstallation();
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
+                await LoadCurrentSkinAsync();
                 Console.WriteLine("[TryAutoLogin] Автоматический вход выполнен");
             }
             else
@@ -902,6 +904,7 @@ public class MainWindowViewModel : ViewModelBase
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
                 await LoadServerStatusAsync();
+                await LoadCurrentSkinAsync();
             }
             else
             {
@@ -1198,6 +1201,88 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
+    private async Task LoadCurrentSkinAsync()
+    {
+        try
+        {
+            // Сначала проверяем локальный кэш скина
+            var localSkinPath = GetLocalSkinPath();
+            if (File.Exists(localSkinPath))
+            {
+                Console.WriteLine($"[LoadCurrentSkinAsync] Загрузка скина из кэша: {localSkinPath}");
+                await LoadSkinPreviewAsync(localSkinPath);
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    SkinStatus = "Скин загружен из кэша";
+                });
+            }
+
+            // Затем пытаемся обновить с сервера
+            var result = await _apiService.GetCurrentSkinAsync();
+            if (result.IsSuccess && result.Data != null)
+            {
+                // Скачиваем скин по URL
+                var skinBytes = await _httpClient.GetByteArrayAsync(result.Data.DownloadUrl);
+
+                // Сохраняем локально для кэша
+                var skinDir = Path.GetDirectoryName(localSkinPath);
+                if (!string.IsNullOrEmpty(skinDir))
+                {
+                    Directory.CreateDirectory(skinDir);
+                }
+                await File.WriteAllBytesAsync(localSkinPath, skinBytes);
+
+                // Загружаем превью
+                await LoadSkinPreviewAsync(localSkinPath);
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    SkinStatus = $"Скин загружен ({result.Data.SkinType})";
+                });
+
+                Console.WriteLine($"[LoadCurrentSkinAsync] Скин загружен с сервера: {result.Data.SkinType}");
+            }
+            else if (!File.Exists(localSkinPath))
+            {
+                // Нет ни локального, ни серверного скина
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    SkinStatus = "Скин не загружен";
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadCurrentSkinAsync] Ошибка: {ex.Message}");
+
+            // Если ошибка сети, но есть локальный кэш - используем его
+            var localSkinPath = GetLocalSkinPath();
+            if (File.Exists(localSkinPath))
+            {
+                try
+                {
+                    await LoadSkinPreviewAsync(localSkinPath);
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        SkinStatus = "Скин загружен из кэша (офлайн)";
+                    });
+                }
+                catch (Exception cacheEx)
+                {
+                    Console.WriteLine($"[LoadCurrentSkinAsync] Ошибка загрузки из кэша: {cacheEx.Message}");
+                }
+            }
+        }
+    }
+
+    private string GetLocalSkinPath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var launcherDir = Path.Combine(appData, "SRP-RP-Launcher", "cache");
+        return Path.Combine(launcherDir, $"{Username}_skin.png");
+    }
+
     private void StartEditNickname()
     {
         NewNickname = Username;
@@ -1394,7 +1479,20 @@ public class MainWindowViewModel : ViewModelBase
             if (success)
             {
                 SkinStatus = "Скин успешно загружен!";
-                await LoadSkinPreviewAsync(filePath);
+
+                // Сохраняем скин в локальный кэш
+                var localSkinPath = GetLocalSkinPath();
+                var skinDir = Path.GetDirectoryName(localSkinPath);
+                if (!string.IsNullOrEmpty(skinDir))
+                {
+                    Directory.CreateDirectory(skinDir);
+                }
+                File.Copy(filePath, localSkinPath, overwrite: true);
+
+                // Загружаем превью из загруженного файла
+                await LoadSkinPreviewAsync(localSkinPath);
+
+                StatusMessage = "Скин успешно загружен!";
             }
             else
             {
@@ -1522,6 +1620,14 @@ public class MainWindowViewModel : ViewModelBase
             {
                 SkinStatus = "Скин удален";
                 CurrentSkinPreview = null;
+
+                // Удаляем локальный кэш
+                var localSkinPath = GetLocalSkinPath();
+                if (File.Exists(localSkinPath))
+                {
+                    File.Delete(localSkinPath);
+                    Console.WriteLine($"[DeleteSkinAsync] Локальный кэш удален: {localSkinPath}");
+                }
             }
             else
             {
@@ -1539,12 +1645,32 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            using var stream = File.OpenRead(filePath);
-            CurrentSkinPreview = new Avalonia.Media.Imaging.Bitmap(stream);
+            // Загружаем изображение и конвертируем в правильный формат
+            using var fileStream = File.OpenRead(filePath);
+            var bitmap = new Avalonia.Media.Imaging.Bitmap(fileStream);
+
+            // Создаем новый bitmap с правильным форматом (Bgra8888)
+            var renderTarget = new Avalonia.Media.Imaging.RenderTargetBitmap(
+                new Avalonia.PixelSize(bitmap.PixelSize.Width, bitmap.PixelSize.Height),
+                new Avalonia.Vector(96, 96));
+
+            using (var context = renderTarget.CreateDrawingContext())
+            {
+                context.DrawImage(bitmap, new Avalonia.Rect(0, 0, bitmap.PixelSize.Width, bitmap.PixelSize.Height),
+                    new Avalonia.Rect(0, 0, bitmap.PixelSize.Width, bitmap.PixelSize.Height));
+            }
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                CurrentSkinPreview = renderTarget;
+            });
+
+            Console.WriteLine($"[LoadSkinPreviewAsync] Превью загружено: {bitmap.PixelSize.Width}x{bitmap.PixelSize.Height}");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка загрузки превью: {ex.Message}");
+            Console.WriteLine($"[LoadSkinPreviewAsync] Stack: {ex.StackTrace}");
         }
     }
 }

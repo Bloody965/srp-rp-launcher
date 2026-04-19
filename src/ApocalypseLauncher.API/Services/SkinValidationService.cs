@@ -87,11 +87,14 @@ public class SkinValidationService
             return (false, $"Глубина цвета {fileType} должна быть 8 бит");
         }
 
-        // Color type: 2 (RGB) или 6 (RGBA) - оба допустимы
-        if (colorType != 2 && colorType != 6)
+        // Color type: принимаем любой валидный PNG тип (0-6, кроме 1 и 5 которые зарезервированы)
+        // 0 = Grayscale, 2 = RGB, 3 = Indexed, 4 = Grayscale+Alpha, 6 = RGBA
+        if (colorType > 6 || colorType == 1 || colorType == 5)
         {
-            return (false, $"Тип цвета {fileType} должен быть RGB или RGBA");
+            return (false, $"Некорректный тип цвета PNG файла {fileType}");
         }
+
+        // Все валидные PNG типы принимаются
 
         return (true, null);
     }

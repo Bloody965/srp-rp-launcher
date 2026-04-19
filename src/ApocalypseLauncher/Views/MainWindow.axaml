@@ -391,6 +391,14 @@
                                 </StackPanel>
                             </Border>
 
+                            <Border Classes="statusPanel" Padding="24" IsVisible="{Binding StatusMessage, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                <StackPanel Spacing="14">
+                                    <TextBlock Text="ЖУРНАЛ СОСТОЯНИЯ" Classes="microLabel"/>
+                                    <TextBlock Text="{Binding StatusMessage}" Classes="statusText" TextWrapping="Wrap"/>
+                                    <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="12" IsVisible="{Binding ProgressValue, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                </StackPanel>
+                            </Border>
+
                             <Border Classes="formPanel" Padding="26" IsVisible="{Binding IsInstalled}">
                                 <StackPanel Spacing="14">
                                     <TextBlock Text="СИСТЕМНЫЕ ПАРАМЕТРЫ" Classes="microLabel"/>
@@ -452,14 +460,6 @@
                                             <TextBlock Text="{Binding SkinStatus}" Classes="captionText" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#D3924D"/>
                                         </StackPanel>
                                     </Grid>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Classes="statusPanel" Padding="24" IsVisible="{Binding StatusMessage, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                <StackPanel Spacing="14">
-                                    <TextBlock Text="ЖУРНАЛ СОСТОЯНИЯ" Classes="microLabel"/>
-                                    <TextBlock Text="{Binding StatusMessage}" Classes="statusText" TextWrapping="Wrap"/>
-                                    <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="12" IsVisible="{Binding ProgressValue, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
