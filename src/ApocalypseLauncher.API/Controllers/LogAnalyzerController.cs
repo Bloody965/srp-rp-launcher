@@ -61,7 +61,7 @@ public class LogAnalyzerController : ControllerBase
 
             var requestBody = new
             {
-                model = "llama-3.1-70b-versatile",
+                model = "llama-3.3-70b-versatile",
                 messages = new[]
                 {
                     new
