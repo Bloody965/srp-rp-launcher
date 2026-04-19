@@ -236,233 +236,321 @@
                         </Grid>
                     </Grid>
 
-                    <Grid IsVisible="{Binding IsLoggedIn}" ColumnDefinitions="*,*" ColumnSpacing="18" VerticalAlignment="Center" MaxWidth="1360" HorizontalAlignment="Center">
-                        <Border Grid.Column="0" Classes="heroPanel" Padding="30">
-                            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="18">
-                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="24">
-                                    <Border Width="132" Height="132" CornerRadius="30" Classes="logoShell" HorizontalAlignment="Left">
-                                        <Border.Background>
-                                            <ImageBrush Source="/Assets/Images/logo.png" Stretch="Uniform"/>
-                                        </Border.Background>
-                                    </Border>
+                    <Grid IsVisible="{Binding IsLoggedIn}" MaxWidth="1360" HorizontalAlignment="Center">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="20">
+                            <!-- Навигация -->
+                            <Border Grid.Row="0" Classes="heroPanel" Padding="20,16">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="20">
+                                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <Button Command="{Binding ShowHomeTabCommand}" Classes="primaryButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Home}">
+                                            <TextBlock Text="ГЛАВНАЯ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Command="{Binding ShowHomeTabCommand}" Classes="ghostButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter=Home}">
+                                            <TextBlock Text="ГЛАВНАЯ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
 
-                                    <StackPanel Grid.Column="1" Spacing="10" VerticalAlignment="Center" MaxWidth="420">
-                                        <Border Background="#22D3924D" BorderBrush="#55D3924D" BorderThickness="1" CornerRadius="999" Padding="12,6" HorizontalAlignment="Left">
-                                            <TextBlock Text="POST-APOCALYPSE RESIDENT RP" Classes="microLabel"/>
+                                        <Button Command="{Binding ShowPersonalizationTabCommand}" Classes="primaryButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Personalization}">
+                                            <TextBlock Text="ПЕРСОНАЛИЗАЦИЯ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Command="{Binding ShowPersonalizationTabCommand}" Classes="ghostButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter=Personalization}">
+                                            <TextBlock Text="ПЕРСОНАЛИЗАЦИЯ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+
+                                        <Button Command="{Binding ShowProfileTabCommand}" Classes="primaryButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Profile}">
+                                            <TextBlock Text="ПРОФИЛЬ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Command="{Binding ShowProfileTabCommand}" Classes="ghostButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter=Profile}">
+                                            <TextBlock Text="ПРОФИЛЬ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Вкладка: Главная -->
+                            <Grid Grid.Row="1" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Home}" ColumnDefinitions="*,*" ColumnSpacing="18">
+                                <Border Grid.Column="0" Classes="heroPanel" Padding="30">
+                                    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="18">
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="24">
+                                            <Border Width="132" Height="132" CornerRadius="30" Classes="logoShell" HorizontalAlignment="Left">
+                                                <Border.Background>
+                                                    <ImageBrush Source="/Assets/Images/logo.png" Stretch="Uniform"/>
+                                                </Border.Background>
+                                            </Border>
+
+                                            <StackPanel Grid.Column="1" Spacing="10" VerticalAlignment="Center" MaxWidth="420">
+                                                <Border Background="#22D3924D" BorderBrush="#55D3924D" BorderThickness="1" CornerRadius="999" Padding="12,6" HorizontalAlignment="Left">
+                                                    <TextBlock Text="POST-APOCALYPSE RESIDENT RP" Classes="microLabel"/>
+                                                </Border>
+                                                <TextBlock Text="ПРИВЕТСТВУЕМ, ВЫЖИВШИЙ" Classes="heroTitle"/>
+                                                <TextBlock Text="Официальный лаунчер SRP-RP" Classes="sectionLead"/>
+                                                <TextBlock Text="{Binding ModpackVersion}" Classes="versionBadge"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid Grid.Row="1">
+                                            <Border Classes="metricCard" Padding="18,16">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="СЕРВЕР" Classes="microLabel"/>
+                                                    <TextBlock Text="{Binding ServerStatusText}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Foreground="{Binding ServerStatusColor}"/>
+                                                    <TextBlock Text="Статус площадки в реальном времени и готовность к входу." Classes="captionText" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+
+                                        <Border Grid.Row="2" Classes="pillCard" Padding="22,20">
+                                            <StackPanel Spacing="10" MaxWidth="540" HorizontalAlignment="Left">
+                                                <TextBlock Text="О ПРОЕКТЕ" Classes="microLabel"/>
+                                                <TextBlock Text="SRP-RP создан, чтобы дарить игрокам незабываемый опыт игры и RP. Мы вкладываемся в каждую деталь и выстраиваем атмосферу так, будто это отдельная игра внутри Minecraft." Classes="bodyText" TextWrapping="Wrap"/>
+                                            </StackPanel>
                                         </Border>
-                                        <TextBlock Text="ПРИВЕТСТВУЕМ, ВЫЖИВШИЙ" Classes="heroTitle"/>
-                                        <TextBlock Text="Официальный лаунчер SRP-RP" Classes="sectionLead"/>
-                                        <TextBlock Text="{Binding ModpackVersion}" Classes="versionBadge"/>
-                                    </StackPanel>
-                                </Grid>
 
-                                <Grid Grid.Row="1" ColumnDefinitions="1.15*,0.85*" ColumnSpacing="14">
-                                    <Border Grid.Column="0" Classes="metricCard" Padding="18,16">
-                                        <StackPanel Spacing="8">
-                                            <TextBlock Text="СЕРВЕР" Classes="microLabel"/>
-                                            <TextBlock Text="{Binding ServerStatusText}" FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Foreground="{Binding ServerStatusColor}"/>
-                                            <TextBlock Text="Статус площадки в реальном времени и готовность к входу." Classes="captionText" TextWrapping="Wrap" MaxWidth="220"/>
-                                        </StackPanel>
-                                    </Border>
+                                        <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="14">
+                                            <Button Grid.Column="0" Classes="linkButton" Click="OpenSiteButton_Click" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Height="138">
+                                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="22" VerticalAlignment="Center">
+                                                    <StackPanel Grid.Column="0" Spacing="8" VerticalAlignment="Center" MaxWidth="245">
+                                                        <TextBlock Text="ОФИЦИАЛЬНЫЙ САЙТ" Classes="microLabel"/>
+                                                        <TextBlock Text="Сайт проекта" FontSize="21" FontWeight="Bold"/>
+                                                        <TextBlock Text="Лор, новости, правила, быстрый старт и весь основной контент SRP-RP." Classes="captionText" TextWrapping="Wrap"/>
+                                                    </StackPanel>
 
-                                    <Border Grid.Column="1" Classes="metricCard" Padding="18,16">
-                                        <StackPanel Spacing="8">
-                                            <TextBlock Text="ВРЕМЯ В ИГРЕ" Classes="microLabel"/>
-                                            <TextBlock Text="{Binding PlayTimeFormatted}" Classes="metricValue"/>
-                                            <TextBlock Text="Суммарное игровое время персонажа в проекте." Classes="captionText" TextWrapping="Wrap" MaxWidth="200"/>
-                                        </StackPanel>
-                                    </Border>
-                                </Grid>
+                                                    <Border Grid.Column="1" Width="46" Height="46" CornerRadius="14" VerticalAlignment="Center" Background="#1F1812" BorderBrush="#7A6245" BorderThickness="1.1">
+                                                        <Path Width="16" Height="16"
+                                                              Stretch="Uniform"
+                                                              Fill="#E9D9B7"
+                                                              HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"
+                                                              Data="M4,4 H12 V6 H7.41 L13,11.59 L11.59,13 L6,7.41 V12 H4 Z"/>
+                                                    </Border>
+                                                </Grid>
+                                            </Button>
 
-                                <Border Grid.Row="2" Classes="pillCard" Padding="22,20">
-                                    <StackPanel Spacing="10" MaxWidth="540" HorizontalAlignment="Left">
-                                        <TextBlock Text="О ПРОЕКТЕ" Classes="microLabel"/>
-                                        <TextBlock Text="SRP-RP создан, чтобы дарить игрокам незабываемый опыт игры и RP. Мы вкладываемся в каждую деталь и выстраиваем атмосферу так, будто это отдельная игра внутри Minecraft." Classes="bodyText" TextWrapping="Wrap"/>
-                                    </StackPanel>
+                                            <Button Grid.Column="1" Classes="linkButton" Click="OpenDiscordButton_Click" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Height="138">
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" VerticalAlignment="Center">
+                                                    <Border Width="74" Height="74" CornerRadius="18" VerticalAlignment="Center" Background="#221C16" BorderBrush="#7A6245" BorderThickness="1.1" Padding="10">
+                                                        <Image Source="/Assets/Images/discord_no_bg.png" Stretch="Uniform"/>
+                                                    </Border>
+
+                                                    <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center" MaxWidth="250">
+                                                        <TextBlock Text="DISCORD КОМЬЮНИТИ" Classes="microLabel"/>
+                                                        <TextBlock Text="Discord проекта" FontSize="21" FontWeight="Bold"/>
+                                                        <TextBlock Text="Общение с игроками, помощь по сборке, анонсы и поддержка комьюнити." Classes="captionText" TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                        </Grid>
+
+                                        <TextBlock Grid.Row="4" Text="{Binding AboutProjectText}" Classes="captionText" TextWrapping="Wrap"/>
+                                    </Grid>
                                 </Border>
 
-                                <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="14">
-                                    <Button Grid.Column="0" Classes="linkButton" Click="OpenSiteButton_Click" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Height="138">
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="22" VerticalAlignment="Center">
-                                            <StackPanel Grid.Column="0" Spacing="8" VerticalAlignment="Center" MaxWidth="245">
-                                                <TextBlock Text="ОФИЦИАЛЬНЫЙ САЙТ" Classes="microLabel"/>
-                                                <TextBlock Text="Сайт проекта" FontSize="21" FontWeight="Bold"/>
-                                                <TextBlock Text="Лор, новости, правила, быстрый старт и весь основной контент SRP-RP." Classes="captionText" TextWrapping="Wrap"/>
+                                <StackPanel Grid.Column="1" Spacing="18" MinWidth="420" HorizontalAlignment="Stretch">
+                                    <Border Classes="formPanel" Padding="26">
+                                        <StackPanel Spacing="14">
+                                            <TextBlock Text="ЦЕНТР УПРАВЛЕНИЯ" Classes="microLabel"/>
+                                            <TextBlock Text="Панель запуска" Classes="formTitle"/>
+                                            <TextBlock Text="Главное действие вынесено наверх, а служебные операции собраны ниже в одном блоке." Classes="captionText" TextWrapping="Wrap"/>
+
+                                            <Button Content="ОБНОВИТЬ ЛАУНЧЕР" Command="{Binding UpdateLauncherCommand}" IsVisible="{Binding HasLauncherUpdate}" Classes="launchButton" Height="76" FontSize="22"/>
+
+                                            <Button Content="ИГРАТЬ" Command="{Binding LaunchCommand}" Classes="launchButton" Height="76" FontSize="24">
+                                                <Button.IsVisible>
+                                                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                                        <Binding Path="IsInstalled"/>
+                                                        <Binding Path="!HasLauncherUpdate"/>
+                                                    </MultiBinding>
+                                                </Button.IsVisible>
+                                            </Button>
+
+                                            <Button Content="УСТАНОВИТЬ КЛИЕНТ" Command="{Binding InstallCommand}" IsVisible="{Binding !IsInstalled}" Classes="primaryButton" Height="58" FontSize="18"/>
+                                            <Button Command="{Binding InstallCommand}" IsVisible="{Binding IsInstalled}" Classes="secondaryButton" Height="56" FontSize="16">
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                    <Border Width="28" Height="28" CornerRadius="8" Background="#18D3924D" BorderBrush="#55D3924D" BorderThickness="1" VerticalAlignment="Center">
+                                                        <Path Width="16"
+                                                              Height="16"
+                                                              Stretch="Uniform"
+                                                              Fill="#F1E7CE"
+                                                              HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"
+                                                              Data="M4,3 H11 L14,6 V13 H4 Z M10.5,3 V6 H13.5 M6.5,9.5 L8.2,11.2 L11.6,7.8"/>
+                                                    </Border>
+                                                    <TextBlock Grid.Column="1" Text="ПРОВЕРИТЬ ФАЙЛЫ" VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold"/>
+                                                </Grid>
+                                            </Button>
+                                            <Button Click="ChooseFolderButton_Click" Classes="ghostButton" Height="54" FontSize="15">
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                    <Border Width="28" Height="28" CornerRadius="8" Background="#10FFF2D8" BorderBrush="#557A6245" BorderThickness="1" VerticalAlignment="Center">
+                                                        <Path Width="17"
+                                                              Height="17"
+                                                              Stretch="Uniform"
+                                                              Fill="#F1E7CE"
+                                                              HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"
+                                                              Data="M2,5 H6 L7.4,6.4 H14 C14.6,6.4 15,6.8 15,7.4 V12.8 C15,13.4 14.6,13.8 14,13.8 H2.8 C2.2,13.8 1.8,13.4 1.8,12.8 V6 C1.8,5.4 2.2,5 2.8,5 Z"/>
+                                                    </Border>
+                                                    <TextBlock Grid.Column="1" Text="ВЫБРАТЬ ПАПКУ" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"/>
+                                                </Grid>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Classes="statusPanel" Padding="24" IsVisible="{Binding StatusMessage, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                        <StackPanel Spacing="14">
+                                            <TextBlock Text="ЖУРНАЛ СОСТОЯНИЯ" Classes="microLabel"/>
+                                            <TextBlock Text="{Binding StatusMessage}" Classes="statusText" TextWrapping="Wrap"/>
+                                            <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="12" IsVisible="{Binding ProgressValue, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Classes="formPanel" Padding="26" IsVisible="{Binding IsInstalled}">
+                                        <StackPanel Spacing="14">
+                                            <TextBlock Text="СИСТЕМНЫЕ ПАРАМЕТРЫ" Classes="microLabel"/>
+                                            <TextBlock Text="Оперативная память" Classes="formTitle" FontSize="20"/>
+                                            <TextBlock Text="Подстройте доступную память под ваше железо. Для комфортной игры обычно хватает 4–8 GB." Classes="captionText" TextWrapping="Wrap"/>
+
+                                            <StackPanel Spacing="8">
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Grid.Column="0" Text="Выделено для игры" Classes="bodyText"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding AllocatedRamText}" FontSize="18" FontWeight="Bold" Foreground="#D3924D"/>
+                                                </Grid>
+                                                <Slider Value="{Binding AllocatedRamGB}" Minimum="2" Maximum="16" TickFrequency="1" IsSnapToTickEnabled="True" Height="40"/>
+                                                <TextBlock Text="Рекомендуемая зона: 4–8 GB" Classes="captionText"/>
                                             </StackPanel>
-
-                                            <Border Grid.Column="1" Width="46" Height="46" CornerRadius="14" VerticalAlignment="Center" Background="#1F1812" BorderBrush="#7A6245" BorderThickness="1.1">
-                                                <Path Width="16" Height="16"
-                                                      Stretch="Uniform"
-                                                      Fill="#E9D9B7"
-                                                      HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"
-                                                      Data="M4,4 H12 V6 H7.41 L13,11.59 L11.59,13 L6,7.41 V12 H4 Z"/>
-                                            </Border>
-                                        </Grid>
-                                    </Button>
-
-                                    <Button Grid.Column="1" Classes="linkButton" Click="OpenDiscordButton_Click" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Height="138">
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16" VerticalAlignment="Center">
-                                            <Border Width="74" Height="74" CornerRadius="18" VerticalAlignment="Center" Background="#221C16" BorderBrush="#7A6245" BorderThickness="1.1" Padding="10">
-                                                <Image Source="/Assets/Images/discord_no_bg.png" Stretch="Uniform"/>
-                                            </Border>
-
-                                            <StackPanel Grid.Column="1" Spacing="8" VerticalAlignment="Center" MaxWidth="250">
-                                                <TextBlock Text="DISCORD КОМЬЮНИТИ" Classes="microLabel"/>
-                                                <TextBlock Text="Discord проекта" FontSize="21" FontWeight="Bold"/>
-                                                <TextBlock Text="Общение с игроками, помощь по сборке, анонсы и поддержка комьюнити." Classes="captionText" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
-                                </Grid>
-
-                                <TextBlock Grid.Row="4" Text="{Binding AboutProjectText}" Classes="captionText" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
-                        </Border>
 
-                        <StackPanel Grid.Column="1" Spacing="18" MinWidth="420" HorizontalAlignment="Stretch">
-                            <Border Classes="profileCard" Padding="24,18" IsVisible="{Binding IsLoggedIn}">
-                                <Grid ColumnDefinitions="1.2*,Auto" ColumnSpacing="24" VerticalAlignment="Center">
-                                    <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Left" MaxWidth="300">
-                                        <TextBlock Text="ПРОФИЛЬ ВЫЖИВШЕГО" Classes="microLabel"/>
-                                        <TextBlock Text="{Binding Username}" FontSize="20" FontWeight="Bold" TextTrimming="CharacterEllipsis" MaxWidth="280"/>
-                                        <TextBlock Text="{Binding UserEmail}" Classes="captionText" TextTrimming="CharacterEllipsis" MaxWidth="280"/>
-                                        <TextBlock Text="{Binding PlayTimeFormatted, StringFormat='Время в игре: {0}'}" Classes="captionText" Foreground="#D3924D" Margin="0,4,0,0"/>
-                                    </StackPanel>
+                            <!-- Вкладка: Персонализация -->
+                            <Grid Grid.Row="1" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Personalization}">
+                                <Border Classes="formPanel" Padding="30" MaxWidth="900" HorizontalAlignment="Center">
+                                    <StackPanel Spacing="20">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="ПЕРСОНАЛИЗАЦИЯ" Classes="microLabel"/>
+                                            <TextBlock Text="Скины и плащи" Classes="formTitle" FontSize="24"/>
+                                            <TextBlock Text="Загрузите свой уникальный скин и плащ для персонажа в игре." Classes="bodyText" TextWrapping="Wrap"/>
+                                        </StackPanel>
 
-                                    <Button Grid.Column="1"
-                                            Content="ВЫЙТИ"
-                                            Command="{Binding LogoutCommand}"
-                                            Classes="secondaryButton"
-                                            Width="108"
-                                            Height="42"
-                                            Margin="0,0,0,0"
-                                            VerticalAlignment="Center"
-                                            HorizontalAlignment="Right"/>
-                                </Grid>
-                            </Border>
-
-                            <Border Classes="formPanel" Padding="26">
-                                <StackPanel Spacing="14">
-                                    <TextBlock Text="ЦЕНТР УПРАВЛЕНИЯ" Classes="microLabel"/>
-                                    <TextBlock Text="Панель запуска" Classes="formTitle"/>
-                                    <TextBlock Text="Главное действие вынесено наверх, а служебные операции собраны ниже в одном блоке." Classes="captionText" TextWrapping="Wrap"/>
-
-                                    <Button Content="ОБНОВИТЬ ЛАУНЧЕР" Command="{Binding UpdateLauncherCommand}" IsVisible="{Binding HasLauncherUpdate}" Classes="launchButton" Height="76" FontSize="22"/>
-
-                                    <Button Content="ИГРАТЬ" Command="{Binding LaunchCommand}" Classes="launchButton" Height="76" FontSize="24">
-                                        <Button.IsVisible>
-                                            <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                                <Binding Path="IsInstalled"/>
-                                                <Binding Path="!HasLauncherUpdate"/>
-                                            </MultiBinding>
-                                        </Button.IsVisible>
-                                    </Button>
-
-                                    <Button Content="УСТАНОВИТЬ КЛИЕНТ" Command="{Binding InstallCommand}" IsVisible="{Binding !IsInstalled}" Classes="primaryButton" Height="58" FontSize="18"/>
-                                    <Button Command="{Binding InstallCommand}" IsVisible="{Binding IsInstalled}" Classes="secondaryButton" Height="56" FontSize="16">
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                                            <Border Width="28" Height="28" CornerRadius="8" Background="#18D3924D" BorderBrush="#55D3924D" BorderThickness="1" VerticalAlignment="Center">
-                                                <Path Width="16"
-                                                      Height="16"
-                                                      Stretch="Uniform"
-                                                      Fill="#F1E7CE"
-                                                      HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"
-                                                      Data="M4,3 H11 L14,6 V13 H4 Z M10.5,3 V6 H13.5 M6.5,9.5 L8.2,11.2 L11.6,7.8"/>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="30">
+                                            <Border Grid.Column="0" Width="280" Height="560" Background="#15FFF2D8" CornerRadius="8" BorderBrush="#557A6245" BorderThickness="1" Padding="20">
+                                                <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Image Source="{Binding CurrentSkinPreview}" Stretch="None"/>
+                                                </Viewbox>
                                             </Border>
-                                            <TextBlock Grid.Column="1" Text="ПРОВЕРИТЬ ФАЙЛЫ" VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold"/>
-                                        </Grid>
-                                    </Button>
-                                    <Button Click="ChooseFolderButton_Click" Classes="ghostButton" Height="54" FontSize="15">
-                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-                                            <Border Width="28" Height="28" CornerRadius="8" Background="#10FFF2D8" BorderBrush="#557A6245" BorderThickness="1" VerticalAlignment="Center">
-                                                <Path Width="17"
-                                                      Height="17"
-                                                      Stretch="Uniform"
-                                                      Fill="#F1E7CE"
-                                                      HorizontalAlignment="Center"
-                                                      VerticalAlignment="Center"
-                                                      Data="M2,5 H6 L7.4,6.4 H14 C14.6,6.4 15,6.8 15,7.4 V12.8 C15,13.4 14.6,13.8 14,13.8 H2.8 C2.2,13.8 1.8,13.4 1.8,12.8 V6 C1.8,5.4 2.2,5 2.8,5 Z"/>
-                                            </Border>
-                                            <TextBlock Grid.Column="1" Text="ВЫБРАТЬ ПАПКУ" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"/>
-                                        </Grid>
-                                    </Button>
-                                </StackPanel>
-                            </Border>
 
-                            <Border Classes="statusPanel" Padding="24" IsVisible="{Binding StatusMessage, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                <StackPanel Spacing="14">
-                                    <TextBlock Text="ЖУРНАЛ СОСТОЯНИЯ" Classes="microLabel"/>
-                                    <TextBlock Text="{Binding StatusMessage}" Classes="statusText" TextWrapping="Wrap"/>
-                                    <ProgressBar Value="{Binding ProgressValue}" Maximum="100" Height="12" IsVisible="{Binding ProgressValue, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                                </StackPanel>
-                            </Border>
+                                            <StackPanel Grid.Column="1" Spacing="16" VerticalAlignment="Center" MaxWidth="400">
+                                                <StackPanel Spacing="10">
+                                                    <TextBlock Text="Модель персонажа" Classes="bodyText" FontWeight="SemiBold" FontSize="16"/>
+                                                    <StackPanel Spacing="8">
+                                                        <RadioButton IsChecked="{Binding IsClassicSkin}" Content="Steve (Classic)" FontSize="15"/>
+                                                        <RadioButton IsChecked="{Binding IsSlimSkin}" Content="Alex (Slim)" FontSize="15"/>
+                                                    </StackPanel>
+                                                </StackPanel>
 
-                            <Border Classes="formPanel" Padding="26" IsVisible="{Binding IsInstalled}">
-                                <StackPanel Spacing="14">
-                                    <TextBlock Text="СИСТЕМНЫЕ ПАРАМЕТРЫ" Classes="microLabel"/>
-                                    <TextBlock Text="Оперативная память" Classes="formTitle" FontSize="20"/>
-                                    <TextBlock Text="Подстройте доступную память под ваше железо. Для комфортной игры обычно хватает 4–8 GB." Classes="captionText" TextWrapping="Wrap"/>
+                                                <StackPanel Spacing="10" Margin="0,10,0,0">
+                                                    <Button Command="{Binding UploadSkinCommand}" Classes="primaryButton" Height="50" FontSize="16">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                            <Path Width="18" Height="18" Stretch="Uniform" Fill="#080706" Data="M12,4 L12,12 M8,8 L12,4 L16,8 M4,16 L20,16"/>
+                                                            <TextBlock Grid.Column="1" Text="ЗАГРУЗИТЬ СКИН" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                                        </Grid>
+                                                    </Button>
 
-                                    <StackPanel Spacing="8">
-                                        <Grid ColumnDefinitions="*,Auto">
-                                            <TextBlock Grid.Column="0" Text="Выделено для игры" Classes="bodyText"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding AllocatedRamText}" FontSize="18" FontWeight="Bold" Foreground="#D3924D"/>
+                                                    <Button Command="{Binding UploadCapeCommand}" Classes="secondaryButton" Height="50" FontSize="16">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                            <Path Width="18" Height="18" Stretch="Uniform" Fill="#F1E7CE" Data="M12,4 L12,12 M8,8 L12,4 L16,8 M4,16 L20,16"/>
+                                                            <TextBlock Grid.Column="1" Text="ЗАГРУЗИТЬ ПЛАЩ" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                                        </Grid>
+                                                    </Button>
+
+                                                    <Button Command="{Binding DeleteSkinCommand}" Classes="ghostButton" Height="46" FontSize="15">
+                                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                            <Path Width="16" Height="16" Stretch="Uniform" Fill="#F1E7CE" Data="M6,2 L18,2 M8,2 L8,1 L16,1 L16,2 M10,7 L10,17 M14,7 L14,17 M4,4 L20,4 L19,20 L5,20 Z"/>
+                                                            <TextBlock Grid.Column="1" Text="УДАЛИТЬ СКИН" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                                        </Grid>
+                                                    </Button>
+                                                </StackPanel>
+
+                                                <TextBlock Text="{Binding SkinStatus}" Classes="captionText" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#D3924D" FontSize="14"/>
+                                            </StackPanel>
                                         </Grid>
-                                        <Slider Value="{Binding AllocatedRamGB}" Minimum="2" Maximum="16" TickFrequency="1" IsSnapToTickEnabled="True" Height="40"/>
-                                        <TextBlock Text="Рекомендуемая зона: 4–8 GB" Classes="captionText"/>
                                     </StackPanel>
-                                </StackPanel>
-                            </Border>
+                                </Border>
+                            </Grid>
 
-                            <Border Classes="formPanel" Padding="26" IsVisible="{Binding IsLoggedIn}">
-                                <StackPanel Spacing="14">
-                                    <TextBlock Text="ПЕРСОНАЛИЗАЦИЯ" Classes="microLabel"/>
-                                    <TextBlock Text="Скины и плащи" Classes="formTitle" FontSize="20"/>
-                                    <TextBlock Text="Загрузите свой уникальный скин и плащ для персонажа в игре." Classes="captionText" TextWrapping="Wrap"/>
+                            <!-- Вкладка: Профиль -->
+                            <Grid Grid.Row="1" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Profile}">
+                                <Border Classes="formPanel" Padding="30" MaxWidth="900" HorizontalAlignment="Center">
+                                    <StackPanel Spacing="24">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="ПРОФИЛЬ" Classes="microLabel"/>
+                                            <TextBlock Text="Информация об аккаунте" Classes="formTitle" FontSize="24"/>
+                                            <TextBlock Text="Управление вашим профилем и статистикой игрока." Classes="bodyText" TextWrapping="Wrap"/>
+                                        </StackPanel>
 
-                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
-                                        <Border Grid.Column="0" Width="128" Height="256" Background="#15FFF2D8" CornerRadius="8" BorderBrush="#557A6245" BorderThickness="1">
-                                            <Image Source="{Binding CurrentSkinPreview}" Stretch="Uniform" Width="120" Height="240"/>
+                                        <Border Classes="pillCard" Padding="24">
+                                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="18">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="ИМЯ ПОЛЬЗОВАТЕЛЯ" Classes="microLabel"/>
+                                                    <TextBlock Text="{Binding Username}" FontSize="22" FontWeight="Bold" Foreground="#D3924D"/>
+                                                </StackPanel>
+
+                                                <Border Grid.Row="1" Height="1" Background="#22D3924D"/>
+
+                                                <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="20">
+                                                    <StackPanel Grid.Column="0" Spacing="8">
+                                                        <TextBlock Text="ВРЕМЯ В ИГРЕ" Classes="microLabel"/>
+                                                        <TextBlock Text="{Binding PlayTimeFormatted}" FontSize="20" FontWeight="Bold"/>
+                                                        <TextBlock Text="Суммарное игровое время персонажа в проекте." Classes="captionText" TextWrapping="Wrap"/>
+                                                    </StackPanel>
+
+                                                    <StackPanel Grid.Column="1" Spacing="8">
+                                                        <TextBlock Text="СТАТУС АККАУНТА" Classes="microLabel"/>
+                                                        <TextBlock Text="Активен" FontSize="20" FontWeight="Bold" Foreground="#7BC96F"/>
+                                                        <TextBlock Text="Ваш аккаунт подтвержден и готов к игре." Classes="captionText" TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <Border Grid.Row="3" Height="1" Background="#22D3924D"/>
+                                            </Grid>
                                         </Border>
 
-                                        <StackPanel Grid.Column="1" Spacing="10" VerticalAlignment="Center">
-                                            <TextBlock Text="Модель персонажа" Classes="bodyText" FontWeight="SemiBold"/>
-                                            <StackPanel Spacing="6">
-                                                <RadioButton IsChecked="{Binding IsClassicSkin}" Content="Steve (Classic)" FontSize="14"/>
-                                                <RadioButton IsChecked="{Binding IsSlimSkin}" Content="Alex (Slim)" FontSize="14"/>
+                                        <Border Classes="pillCard" Padding="24">
+                                            <StackPanel Spacing="16">
+                                                <StackPanel Spacing="8">
+                                                    <TextBlock Text="ПЕРСОНАЛИЗАЦИЯ" Classes="microLabel"/>
+                                                    <TextBlock Text="Настройки внешнего вида" FontSize="18" FontWeight="Bold"/>
+                                                </StackPanel>
+
+                                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
+                                                    <Border Grid.Column="0" Width="128" Height="256" Background="#15FFF2D8" CornerRadius="8" BorderBrush="#557A6245" BorderThickness="1">
+                                                        <Image Source="{Binding CurrentSkinPreview}" Stretch="Uniform" Width="120" Height="240"/>
+                                                    </Border>
+
+                                                    <StackPanel Grid.Column="1" Spacing="12" VerticalAlignment="Center">
+                                                        <StackPanel Spacing="8">
+                                                            <TextBlock Text="МОДЕЛЬ ПЕРСОНАЖА" Classes="microLabel"/>
+                                                            <StackPanel Spacing="4">
+                                                                <TextBlock Text="Steve (Classic)" FontSize="16" FontWeight="SemiBold" IsVisible="{Binding IsClassicSkin}"/>
+                                                                <TextBlock Text="Alex (Slim)" FontSize="16" FontWeight="SemiBold" IsVisible="{Binding IsSlimSkin}"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+
+                                                        <TextBlock Text="{Binding SkinStatus}" Classes="captionText" TextWrapping="Wrap" Foreground="#D3924D"/>
+                                                    </StackPanel>
+                                                </Grid>
                                             </StackPanel>
+                                        </Border>
 
-                                            <StackPanel Spacing="8" Margin="0,10,0,0">
-                                                <Button Command="{Binding UploadSkinCommand}" Classes="primaryButton" Height="44" FontSize="15">
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                                        <Path Width="16" Height="16" Stretch="Uniform" Fill="#080706" Data="M12,4 L12,12 M8,8 L12,4 L16,8 M4,16 L20,16"/>
-                                                        <TextBlock Grid.Column="1" Text="ЗАГРУЗИТЬ СКИН" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                                    </Grid>
-                                                </Button>
-
-                                                <Button Command="{Binding UploadCapeCommand}" Classes="secondaryButton" Height="44" FontSize="15">
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                                        <Path Width="16" Height="16" Stretch="Uniform" Fill="#F1E7CE" Data="M12,4 L12,12 M8,8 L12,4 L16,8 M4,16 L20,16"/>
-                                                        <TextBlock Grid.Column="1" Text="ЗАГРУЗИТЬ ПЛАЩ" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                                    </Grid>
-                                                </Button>
-
-                                                <Button Command="{Binding DeleteSkinCommand}" Classes="ghostButton" Height="40" FontSize="14">
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                                        <Path Width="14" Height="14" Stretch="Uniform" Fill="#F1E7CE" Data="M6,2 L18,2 M8,2 L8,1 L16,1 L16,2 M10,7 L10,17 M14,7 L14,17 M4,4 L20,4 L19,20 L5,20 Z"/>
-                                                        <TextBlock Grid.Column="1" Text="УДАЛИТЬ СКИН" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                                    </Grid>
-                                                </Button>
-                                            </StackPanel>
-
-                                            <TextBlock Text="{Binding SkinStatus}" Classes="captionText" TextWrapping="Wrap" Margin="0,6,0,0" Foreground="#D3924D"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
+                                        <Button Command="{Binding LogoutCommand}" Classes="secondaryButton" Height="54" FontSize="16" HorizontalAlignment="Center" MinWidth="250">
+                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                <Path Width="18" Height="18" Stretch="Uniform" Fill="#F1E7CE" VerticalAlignment="Center"
+                                                      Data="M17,7 L15.59,8.41 L18.17,11 L8,11 L8,13 L18.17,13 L15.59,15.59 L17,17 L22,12 Z M4,5 L12,5 L12,3 L4,3 C2.9,3 2,3.9 2,5 L2,19 C2,20.1 2.9,21 4,21 L12,21 L12,19 L4,19 Z"/>
+                                                <TextBlock Grid.Column="1" Text="ВЫЙТИ" VerticalAlignment="Center" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                                            </Grid>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
                     </Grid>
                 </Grid>
             </ScrollViewer>

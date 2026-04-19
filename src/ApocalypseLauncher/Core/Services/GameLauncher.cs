@@ -122,6 +122,14 @@ public class GameLauncher
         args.Add("-XX:MaxGCPauseMillis=50");
         args.Add("-XX:G1HeapRegionSize=32M");
 
+        // Authlib-injector для кастомных скинов
+        var authlibPath = Path.Combine(options.GameDirectory, "authlib-injector.jar");
+        if (File.Exists(authlibPath))
+        {
+            Log("Adding authlib-injector for custom skins...");
+            args.Add($"-javaagent:{authlibPath}=https://srp-rp-launcher-production.up.railway.app/api/yggdrasil");
+        }
+
         // Forge-специфичные JVM аргументы
         var isForge = options.MainClass == "cpw.mods.bootstraplauncher.BootstrapLauncher";
         if (isForge)

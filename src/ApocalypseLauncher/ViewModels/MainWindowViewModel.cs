@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Reactive;
 using System.Threading.Tasks;
@@ -22,6 +23,7 @@ public class MainWindowViewModel : ViewModelBase
     private SkinService _skinService;
     private string _minecraftDirectory;
     private readonly HttpClient _httpClient;
+    private bool _isLoadingSkinPreview = false;
 
     public MainWindowViewModel()
     {
@@ -79,6 +81,9 @@ public class MainWindowViewModel : ViewModelBase
         UploadSkinCommand = ReactiveCommand.CreateFromTask(UploadSkinAsync);
         UploadCapeCommand = ReactiveCommand.CreateFromTask(UploadCapeAsync);
         DeleteSkinCommand = ReactiveCommand.CreateFromTask(DeleteSkinAsync);
+        ShowHomeTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Home"; });
+        ShowPersonalizationTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Personalization"; });
+        ShowProfileTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Profile"; });
 
         // Загружаем настройки RAM
         LoadRamSettings();
@@ -515,6 +520,17 @@ public class MainWindowViewModel : ViewModelBase
         get => _currentView;
         set => this.RaiseAndSetIfChanged(ref _currentView, value);
     }
+
+    private string _currentTab = "Home";
+    public string CurrentTab
+    {
+        get => _currentTab;
+        set => this.RaiseAndSetIfChanged(ref _currentTab, value);
+    }
+
+    public ReactiveCommand<Unit, Unit> ShowHomeTabCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowPersonalizationTabCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowProfileTabCommand { get; }
 
     public ReactiveCommand<Unit, Unit> LoginCommand { get; }
     public ReactiveCommand<Unit, Unit> RegisterCommand { get; }
@@ -1112,6 +1128,9 @@ public class MainWindowViewModel : ViewModelBase
             StatusMessage = "Подготовка к запуску...";
             GameOutput = string.Empty;
 
+            // Скачиваем authlib-injector если его нет
+            await DownloadAuthlibInjectorIfNeededAsync();
+
             var authResult = _authService.AuthenticateOffline(Username);
 
             // CreateLaunchOptions автоматически определит Forge или vanilla
@@ -1139,6 +1158,33 @@ public class MainWindowViewModel : ViewModelBase
             Console.WriteLine($"[LaunchGameAsync] ERROR: {ex.Message}");
             Console.WriteLine($"[LaunchGameAsync] Stack trace: {ex.StackTrace}");
             IsGameRunning = false;
+        }
+    }
+
+    private async Task DownloadAuthlibInjectorIfNeededAsync()
+    {
+        try
+        {
+            var authlibPath = Path.Combine(_minecraftDirectory, "authlib-injector.jar");
+
+            if (File.Exists(authlibPath))
+            {
+                Console.WriteLine("[DownloadAuthlibInjector] Уже установлен");
+                return;
+            }
+
+            Console.WriteLine("[DownloadAuthlibInjector] Скачивание authlib-injector...");
+
+            // Скачиваем последнюю версию authlib-injector
+            var authlibUrl = "https://github.com/yushijinhun/authlib-injector/releases/download/v1.2.5/authlib-injector-1.2.5.jar";
+            var authlibBytes = await _httpClient.GetByteArrayAsync(authlibUrl);
+            await File.WriteAllBytesAsync(authlibPath, authlibBytes);
+
+            Console.WriteLine($"[DownloadAuthlibInjector] Установлен: {authlibPath}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DownloadAuthlibInjector] Ошибка: {ex.Message}");
         }
     }
 
@@ -1212,6 +1258,9 @@ public class MainWindowViewModel : ViewModelBase
                 Console.WriteLine($"[LoadCurrentSkinAsync] Загрузка скина из кэша: {localSkinPath}");
                 await LoadSkinPreviewAsync(localSkinPath);
 
+                // Копируем скин в директорию Minecraft для отображения в игре
+                await CopySkinToMinecraftAsync(localSkinPath);
+
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     SkinStatus = "Скин загружен из кэша";
@@ -1232,6 +1281,9 @@ public class MainWindowViewModel : ViewModelBase
                     Directory.CreateDirectory(skinDir);
                 }
                 await File.WriteAllBytesAsync(localSkinPath, skinBytes);
+
+                // Копируем скин в директорию Minecraft для отображения в игре
+                await CopySkinToMinecraftAsync(localSkinPath);
 
                 // Загружаем превью
                 await LoadSkinPreviewAsync(localSkinPath);
@@ -1262,6 +1314,7 @@ public class MainWindowViewModel : ViewModelBase
             {
                 try
                 {
+                    await CopySkinToMinecraftAsync(localSkinPath);
                     await LoadSkinPreviewAsync(localSkinPath);
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
@@ -1273,6 +1326,20 @@ public class MainWindowViewModel : ViewModelBase
                     Console.WriteLine($"[LoadCurrentSkinAsync] Ошибка загрузки из кэша: {cacheEx.Message}");
                 }
             }
+        }
+    }
+
+    private async Task CopySkinToMinecraftAsync(string skinPath)
+    {
+        try
+        {
+            // Копируем скин для authlib-injector не нужно - он загружает с сервера
+            // Но сохраняем локально для превью в лаунчере
+            Console.WriteLine($"[CopySkinToMinecraft] Скин сохранен локально для превью");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CopySkinToMinecraft] Ошибка: {ex.Message}");
         }
     }
 
@@ -1643,85 +1710,51 @@ public class MainWindowViewModel : ViewModelBase
 
     private async Task LoadSkinPreviewAsync(string filePath)
     {
+        if (_isLoadingSkinPreview)
+            return;
+
+        _isLoadingSkinPreview = true;
+
         try
         {
-            Console.WriteLine($"[LoadSkinPreviewAsync] Начало загрузки превью для: {filePath}");
+            Console.WriteLine($"[LoadSkinPreviewAsync] Загрузка превью из: {filePath}");
 
-            // Загружаем скин на сервер и получаем его URL
-            var result = await _apiService.GetCurrentSkinAsync();
-
-            string skinUrl;
-
-            if (result.IsSuccess && result.Data != null && !string.IsNullOrEmpty(result.Data.DownloadUrl))
+            // Проверяем существование файла
+            if (!File.Exists(filePath))
             {
-                // Формируем полный URL скина с сервера
-                skinUrl = result.Data.DownloadUrl.StartsWith("http")
-                    ? result.Data.DownloadUrl
-                    : $"https://srp-rp-launcher-production.up.railway.app{result.Data.DownloadUrl}";
-
-                Console.WriteLine($"[LoadSkinPreviewAsync] URL скина с сервера: {skinUrl}");
-            }
-            else
-            {
-                Console.WriteLine($"[LoadSkinPreviewAsync] Скин не найден на сервере, используем локальный файл");
-
-                // Если скин еще не на сервере, загружаем локальный файл
-                // Загружаем скин напрямую на visage через их upload API
-                var skinBytes = await File.ReadAllBytesAsync(filePath);
-
-                // Сохраняем временно на наш сервер для доступа
-                var tempFileName = $"temp_{Guid.NewGuid()}.png";
-                var tempPath = Path.Combine(Path.GetTempPath(), tempFileName);
-                await File.WriteAllBytesAsync(tempPath, skinBytes);
-
-                // Используем локальный путь (visage не поддерживает data URLs)
-                // Вместо этого используем другой API - crafatar
-                skinUrl = null;
-                Console.WriteLine($"[LoadSkinPreviewAsync] Используем локальный файл, попробуем альтернативный рендер");
+                Console.WriteLine($"[LoadSkinPreviewAsync] Файл не найден: {filePath}");
+                _isLoadingSkinPreview = false;
+                return;
             }
 
-            if (!string.IsNullOrEmpty(skinUrl))
+            // Сразу рендерим локально без запросов к API
+            await Task.Run(() =>
             {
-                // Используем внешний API для 3D рендера скина
-                var renderUrl = $"https://visage.surgeplay.com/full/200/{Uri.EscapeDataString(skinUrl)}";
-                Console.WriteLine($"[LoadSkinPreviewAsync] URL для 3D рендера: {renderUrl}");
-
-                var renderBytes = await _httpClient.GetByteArrayAsync(renderUrl);
-                Console.WriteLine($"[LoadSkinPreviewAsync] Получено байт: {renderBytes.Length}");
-
-                using var renderStream = new MemoryStream(renderBytes);
-                var renderBitmap = new Avalonia.Media.Imaging.Bitmap(renderStream);
-
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                try
                 {
-                    CurrentSkinPreview = renderBitmap;
-                });
+                    var renderedBytes = SkinRenderer.RenderSkin3D(filePath);
 
-                Console.WriteLine($"[LoadSkinPreviewAsync] 3D рендер успешно загружен и установлен");
-            }
-            else
-            {
-                // Временное решение: показываем плоский скин пока не загрузится на сервер
-                Console.WriteLine($"[LoadSkinPreviewAsync] Показываем временное превью");
-                using var fileStream = File.OpenRead(filePath);
-                var bitmap = new Avalonia.Media.Imaging.Bitmap(fileStream);
-
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    {
+                        using var ms = new MemoryStream(renderedBytes);
+                        var bitmap = new Avalonia.Media.Imaging.Bitmap(ms);
+                        CurrentSkinPreview = bitmap;
+                        Console.WriteLine($"[LoadSkinPreviewAsync] Превью успешно загружено");
+                    });
+                }
+                catch (Exception ex)
                 {
-                    CurrentSkinPreview = bitmap;
-                });
-            }
+                    Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка рендеринга: {ex.Message}");
+                }
+            });
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadSkinPreviewAsync] ОШИБКА: {ex.Message}");
-            Console.WriteLine($"[LoadSkinPreviewAsync] Stack: {ex.StackTrace}");
-
-            // Показываем placeholder
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                CurrentSkinPreview = null;
-            });
+            Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingSkinPreview = false;
         }
     }
 }

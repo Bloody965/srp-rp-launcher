@@ -424,4 +424,22 @@ public class SkinsController : ControllerBase
         var hash = await sha256.ComputeHashAsync(stream);
         return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
     }
+
+    [HttpPost("admin/reset-rate-limit/{userId}")]
+    [AllowAnonymous]
+    public ActionResult ResetRateLimit(int userId, [FromQuery] string adminKey)
+    {
+        // Простая защита admin endpoint
+        var expectedKey = _configuration["AdminKey"] ?? "CHANGE_ME";
+        if (adminKey != expectedKey)
+        {
+            return Unauthorized(new { success = false, message = "Invalid admin key" });
+        }
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        _rateLimitService.ResetLimit($"skin_upload_{userId}_{ip}");
+        _rateLimitService.ResetLimit($"skin_upload_{userId}");
+
+        return Ok(new { success = true, message = $"Rate limit reset for user {userId}" });
+    }
 }
