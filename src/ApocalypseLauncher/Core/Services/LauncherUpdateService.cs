@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -11,6 +11,7 @@ namespace ApocalypseLauncher.Core.Services;
 public class LauncherUpdateService
 {
     private const string GITHUB_REPO = "Bloody965/srp-rp-launcher";
+    private const string CURRENT_VERSION = "1.0.0";
     private readonly HttpClient _httpClient;
 
     public event EventHandler<string>? StatusChanged;
@@ -26,7 +27,6 @@ public class LauncherUpdateService
     {
         try
         {
-            var currentVersion = GetCurrentVersion();
             var url = $"https://api.github.com/repos/{GITHUB_REPO}/releases/latest";
             var response = await _httpClient.GetStringAsync(url);
             var release = JsonDocument.Parse(response);
@@ -34,7 +34,7 @@ public class LauncherUpdateService
             var tagName = release.RootElement.GetProperty("tag_name").GetString() ?? "";
             var latestVersion = tagName.TrimStart('v');
 
-            // РС‰РµРј ApocalypseLauncher.zip РІ assets
+            // Ищем ApocalypseLauncher.zip в assets
             string? downloadUrl = null;
             if (release.RootElement.TryGetProperty("assets", out var assets))
             {
@@ -49,18 +49,18 @@ public class LauncherUpdateService
                 }
             }
 
-            if (downloadUrl == null || !IsTrustedDownloadUrl(downloadUrl))
+            if (downloadUrl == null)
             {
-                return (false, currentVersion, "");
+                return (false, CURRENT_VERSION, "");
             }
 
-            var hasUpdate = CompareVersions(currentVersion, latestVersion) < 0;
+            var hasUpdate = CompareVersions(CURRENT_VERSION, latestVersion) < 0;
             return (hasUpdate, latestVersion, downloadUrl);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LauncherUpdateService] РћС€РёР±РєР° РїСЂРѕРІРµСЂРєРё РѕР±РЅРѕРІР»РµРЅРёР№: {ex.Message}");
-            return (false, GetCurrentVersion(), "");
+            Console.WriteLine($"[LauncherUpdateService] Ошибка проверки обновлений: {ex.Message}");
+            return (false, CURRENT_VERSION, "");
         }
     }
 
@@ -68,19 +68,13 @@ public class LauncherUpdateService
     {
         try
         {
-            if (!IsTrustedDownloadUrl(downloadUrl))
-            {
-                StatusChanged?.Invoke(this, "Ошибка: недоверенный источник обновления");
-                return false;
-            }
-
-            StatusChanged?.Invoke(this, "РЎРєР°С‡РёРІР°РЅРёРµ РѕР±РЅРѕРІР»РµРЅРёСЏ...");
+            StatusChanged?.Invoke(this, "Скачивание обновления...");
             ProgressChanged?.Invoke(this, 0);
 
             var tempZip = Path.Combine(Path.GetTempPath(), "launcher_update.zip");
             var tempDir = Path.Combine(Path.GetTempPath(), "launcher_update");
 
-            // РЎРєР°С‡РёРІР°РµРј ZIP
+            // Скачиваем ZIP
             using (var response = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
             {
                 response.EnsureSuccessStatusCode();
@@ -106,45 +100,45 @@ public class LauncherUpdateService
                 }
             }
 
-            StatusChanged?.Invoke(this, "Р Р°СЃРїР°РєРѕРІРєР° РѕР±РЅРѕРІР»РµРЅРёСЏ...");
+            StatusChanged?.Invoke(this, "Распаковка обновления...");
 
-            // РЈРґР°Р»СЏРµРј СЃС‚Р°СЂСѓСЋ РІСЂРµРјРµРЅРЅСѓСЋ РїР°РїРєСѓ РµСЃР»Рё РµСЃС‚СЊ
+            // Удаляем старую временную папку если есть
             if (Directory.Exists(tempDir))
             {
                 Directory.Delete(tempDir, true);
             }
 
-            // Р Р°СЃРїР°РєРѕРІС‹РІР°РµРј
+            // Распаковываем
             ZipFile.ExtractToDirectory(tempZip, tempDir);
             File.Delete(tempZip);
 
-            StatusChanged?.Invoke(this, "РџСЂРёРјРµРЅРµРЅРёРµ РѕР±РЅРѕРІР»РµРЅРёСЏ...");
+            StatusChanged?.Invoke(this, "Применение обновления...");
 
-            // РЎРѕР·РґР°РµРј СЃРєСЂРёРїС‚ РѕР±РЅРѕРІР»РµРЅРёСЏ
+            // Создаем скрипт обновления
             var currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
             var currentDir = Path.GetDirectoryName(currentExe) ?? "";
             var updaterScript = Path.Combine(Path.GetTempPath(), "update_launcher.bat");
 
             var scriptContent = $@"@echo off
 timeout /t 2 /nobreak > nul
-echo РћР±РЅРѕРІР»РµРЅРёРµ Р»Р°СѓРЅС‡РµСЂР°...
+echo Обновление лаунчера...
 
 xcopy ""{tempDir}\*"" ""{currentDir}"" /E /Y /I
 if errorlevel 1 (
-    echo РћС€РёР±РєР° РєРѕРїРёСЂРѕРІР°РЅРёСЏ С„Р°Р№Р»РѕРІ
+    echo Ошибка копирования файлов
     pause
     exit /b 1
 )
 
 rd /s /q ""{tempDir}""
-echo РћР±РЅРѕРІР»РµРЅРёРµ Р·Р°РІРµСЂС€РµРЅРѕ!
+echo Обновление завершено!
 start """" ""{currentExe}""
 del ""%~f0""
 ";
 
             File.WriteAllText(updaterScript, scriptContent);
 
-            // Р—Р°РїСѓСЃРєР°РµРј СЃРєСЂРёРїС‚ РѕР±РЅРѕРІР»РµРЅРёСЏ
+            // Запускаем скрипт обновления
             var psi = new ProcessStartInfo
             {
                 FileName = updaterScript,
@@ -154,15 +148,15 @@ del ""%~f0""
 
             Process.Start(psi);
 
-            // Р—Р°РєСЂС‹РІР°РµРј С‚РµРєСѓС‰РёР№ Р»Р°СѓРЅС‡РµСЂ
+            // Закрываем текущий лаунчер
             Environment.Exit(0);
 
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LauncherUpdateService] РћС€РёР±РєР° СѓСЃС‚Р°РЅРѕРІРєРё РѕР±РЅРѕРІР»РµРЅРёСЏ: {ex.Message}");
-            StatusChanged?.Invoke(this, $"РћС€РёР±РєР°: {ex.Message}");
+            Console.WriteLine($"[LauncherUpdateService] Ошибка установки обновления: {ex.Message}");
+            StatusChanged?.Invoke(this, $"Ошибка: {ex.Message}");
             return false;
         }
     }
@@ -183,28 +177,4 @@ del ""%~f0""
 
         return 0;
     }
-
-    private static string GetCurrentVersion()
-    {
-        var version = FileVersionInfo.GetVersionInfo(Environment.ProcessPath ?? string.Empty).FileVersion;
-        return string.IsNullOrWhiteSpace(version) ? "0.0.0" : version;
-    }
-
-    private static bool IsTrustedDownloadUrl(string downloadUrl)
-    {
-        if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
-            || uri.Host.Equals("github-releases.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
-    }
 }
-
