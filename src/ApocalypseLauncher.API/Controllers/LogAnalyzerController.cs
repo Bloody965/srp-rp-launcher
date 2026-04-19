@@ -33,7 +33,7 @@ public class LogAnalyzerController : ControllerBase
         {
             // Rate limiting: 5 запросов в минуту на IP
             var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            if (!_rateLimitService.IsAllowed(clientIp, "log_analysis", 5, TimeSpan.FromMinutes(1)))
+            if (_rateLimitService.IsRateLimited($"log_analysis:{clientIp}", 5, TimeSpan.FromMinutes(1)))
             {
                 return StatusCode(429, new { success = false, message = "Слишком много запросов. Подождите минуту." });
             }
