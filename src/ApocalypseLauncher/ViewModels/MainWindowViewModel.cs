@@ -1865,8 +1865,10 @@ public class MainWindowViewModel : ViewModelBase
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                // Добавляем результат анализа в начало логов
-                GameLogs = $"=== АНАЛИЗ AI ===\n{analysisResult}\n\n=== ОРИГИНАЛЬНЫЕ ЛОГИ ===\n{GameLogs}";
+                // Открываем отдельное окно с результатом анализа
+                var analysisWindow = new Views.LogAnalysisWindow(analysisResult);
+                analysisWindow.Show();
+
                 LogStatus = "Анализ завершен";
                 StatusMessage = "AI анализ логов завершен";
             });
