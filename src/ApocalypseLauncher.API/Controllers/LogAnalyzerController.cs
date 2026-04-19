@@ -37,8 +37,8 @@ public class LogAnalyzerController : ControllerBase
                 ? request.Logs.Substring(request.Logs.Length - 10000)
                 : request.Logs;
 
-            var apiKey = _configuration["Anthropic:ApiKey"]
-                ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+            var apiKey = _configuration["DeepSeek:ApiKey"]
+                ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
@@ -51,8 +51,7 @@ public class LogAnalyzerController : ControllerBase
 
             var requestBody = new
             {
-                model = "claude-3-5-sonnet-20241022",
-                max_tokens = 1024,
+                model = "deepseek-chat",
                 messages = new[]
                 {
                     new
@@ -73,11 +72,10 @@ public class LogAnalyzerController : ControllerBase
             };
 
             _httpClient.DefaultRequestHeaders.Clear();
-            _httpClient.DefaultRequestHeaders.Add("x-api-key", apiKey);
-            _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
 
             var response = await _httpClient.PostAsync(
-                "https://api.anthropic.com/v1/messages",
+                "https://api.deepseek.com/v1/chat/completions",
                 new StringContent(
                     JsonSerializer.Serialize(requestBody),
                     Encoding.UTF8,
@@ -88,7 +86,7 @@ public class LogAnalyzerController : ControllerBase
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError($"Anthropic API error: {response.StatusCode} - {error}");
+                _logger.LogError($"DeepSeek API error: {response.StatusCode} - {error}");
 
                 return Ok(new
                 {
@@ -99,7 +97,7 @@ public class LogAnalyzerController : ControllerBase
 
             var result = await response.Content.ReadAsStringAsync();
             var json = JsonDocument.Parse(result);
-            var content = json.RootElement.GetProperty("content")[0].GetProperty("text").GetString();
+            var content = json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
 
             return Ok(new
             {
