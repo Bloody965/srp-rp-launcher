@@ -105,6 +105,8 @@ builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddSingleton<MinecraftServerService>();
 builder.Services.AddSingleton<SkinValidationService>();
 
+builder.Services.AddHttpClient();
+
 builder.Services.AddControllers();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();

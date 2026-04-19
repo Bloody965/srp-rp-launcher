@@ -42,7 +42,24 @@ public class MainWindowViewModel : ViewModelBase
         // Подписываемся на события
         _installer.StatusChanged += (s, status) => StatusMessage = status;
         _installer.ProgressChanged += (s, progress) => ProgressValue = progress;
-        _gameLauncher.OutputReceived += (s, output) => GameOutput += output + "\n";
+        _gameLauncher.OutputReceived += (s, output) =>
+        {
+            GameOutput += output + "\n";
+
+            // Также добавляем в GameLogs для вкладки логов
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (GameLogs.Contains("появятся здесь") || GameLogs.Contains("не найдены"))
+                {
+                    GameLogs = output + "\n";
+                    LogStatus = "Получение логов в реальном времени...";
+                }
+                else
+                {
+                    GameLogs += output + "\n";
+                }
+            });
+        };
         _gameLauncher.GameStarted += (s, e) => IsGameRunning = true;
         _gameLauncher.GameExited += (s, code) =>
         {
@@ -51,6 +68,7 @@ public class MainWindowViewModel : ViewModelBase
             {
                 IsGameRunning = false;
                 StatusMessage = $"Игра завершена с кодом: {code}";
+                LogStatus = "Игра завершена. Нажмите 'Обновить' для загрузки полных логов.";
             });
         };
 
@@ -83,7 +101,10 @@ public class MainWindowViewModel : ViewModelBase
         DeleteSkinCommand = ReactiveCommand.CreateFromTask(DeleteSkinAsync);
         ShowHomeTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Home"; });
         ShowPersonalizationTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Personalization"; });
+        ShowLogsTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Logs"; });
         ShowProfileTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Profile"; });
+        RefreshLogsCommand = ReactiveCommand.CreateFromTask(RefreshLogsAsync);
+        AnalyzeLogsWithAICommand = ReactiveCommand.CreateFromTask(AnalyzeLogsWithAIAsync);
 
         // Загружаем настройки RAM
         LoadRamSettings();
@@ -528,8 +549,30 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _currentTab, value);
     }
 
+    private string _gameLogs = "Логи игры появятся здесь после запуска Minecraft...";
+    public string GameLogs
+    {
+        get => _gameLogs;
+        set => this.RaiseAndSetIfChanged(ref _gameLogs, value);
+    }
+
+    private string _logStatus = "Ожидание запуска игры";
+    public string LogStatus
+    {
+        get => _logStatus;
+        set => this.RaiseAndSetIfChanged(ref _logStatus, value);
+    }
+
+    private bool _isAnalyzingLogs = false;
+    public bool IsAnalyzingLogs
+    {
+        get => _isAnalyzingLogs;
+        set => this.RaiseAndSetIfChanged(ref _isAnalyzingLogs, value);
+    }
+
     public ReactiveCommand<Unit, Unit> ShowHomeTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowPersonalizationTabCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowLogsTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowProfileTabCommand { get; }
 
     public ReactiveCommand<Unit, Unit> LoginCommand { get; }
@@ -551,6 +594,8 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> UploadSkinCommand { get; }
     public ReactiveCommand<Unit, Unit> UploadCapeCommand { get; }
     public ReactiveCommand<Unit, Unit> DeleteSkinCommand { get; }
+    public ReactiveCommand<Unit, Unit> RefreshLogsCommand { get; }
+    public ReactiveCommand<Unit, Unit> AnalyzeLogsWithAICommand { get; }
 
     private async Task ChooseFolderAsync()
     {
@@ -1755,6 +1800,130 @@ public class MainWindowViewModel : ViewModelBase
         finally
         {
             _isLoadingSkinPreview = false;
+        }
+    }
+
+    private async Task RefreshLogsAsync()
+    {
+        try
+        {
+            LogStatus = "Обновление логов...";
+
+            // Находим последний лог файл
+            var logsDir = Path.Combine(Environment.CurrentDirectory, "logs");
+            if (!Directory.Exists(logsDir))
+            {
+                GameLogs = "Папка с логами не найдена. Запустите игру для создания логов.";
+                LogStatus = "Логи не найдены";
+                return;
+            }
+
+            var logFiles = Directory.GetFiles(logsDir, "game_launch_*.log")
+                .OrderByDescending(f => File.GetLastWriteTime(f))
+                .ToArray();
+
+            if (logFiles.Length == 0)
+            {
+                GameLogs = "Логи игры не найдены. Запустите игру для создания логов.";
+                LogStatus = "Логи не найдены";
+                return;
+            }
+
+            var latestLog = logFiles[0];
+            var logContent = await File.ReadAllTextAsync(latestLog);
+
+            GameLogs = logContent;
+            LogStatus = $"Обновлено: {Path.GetFileName(latestLog)} ({new FileInfo(latestLog).Length / 1024} KB)";
+        }
+        catch (Exception ex)
+        {
+            GameLogs = $"Ошибка загрузки логов: {ex.Message}";
+            LogStatus = "Ошибка загрузки";
+            Console.WriteLine($"[RefreshLogsAsync] Ошибка: {ex.Message}");
+        }
+    }
+
+    private async Task AnalyzeLogsWithAIAsync()
+    {
+        try
+        {
+            IsAnalyzingLogs = true;
+            LogStatus = "Анализ логов с помощью AI...";
+
+            if (string.IsNullOrWhiteSpace(GameLogs) || GameLogs.Contains("не найдены"))
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    StatusMessage = "Сначала загрузите логи игры";
+                    LogStatus = "Нет логов для анализа";
+                });
+                return;
+            }
+
+            // Отправляем логи на анализ к Claude API
+            var analysisResult = await AnalyzeLogsWithClaudeAsync(GameLogs);
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // Добавляем результат анализа в начало логов
+                GameLogs = $"=== АНАЛИЗ AI ===\n{analysisResult}\n\n=== ОРИГИНАЛЬНЫЕ ЛОГИ ===\n{GameLogs}";
+                LogStatus = "Анализ завершен";
+                StatusMessage = "AI анализ логов завершен";
+            });
+        }
+        catch (Exception ex)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                StatusMessage = $"Ошибка AI анализа: {ex.Message}";
+                LogStatus = "Ошибка анализа";
+            });
+            Console.WriteLine($"[AnalyzeLogsWithAIAsync] Ошибка: {ex.Message}");
+        }
+        finally
+        {
+            IsAnalyzingLogs = false;
+        }
+    }
+
+    private async Task<string> AnalyzeLogsWithClaudeAsync(string logs)
+    {
+        try
+        {
+            // Отправляем логи на backend для анализа
+            var requestBody = new
+            {
+                logs = logs
+            };
+
+            var response = await _httpClient.PostAsync(
+                "https://srp-rp-launcher-production.up.railway.app/api/LogAnalyzer/analyze",
+                new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(requestBody),
+                    System.Text.Encoding.UTF8,
+                    "application/json"
+                )
+            );
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return $"Ошибка сервера: {response.StatusCode}\n{error}";
+            }
+
+            var result = await response.Content.ReadAsStringAsync();
+            var json = System.Text.Json.JsonDocument.Parse(result);
+
+            if (json.RootElement.TryGetProperty("analysis", out var analysisElement))
+            {
+                return analysisElement.GetString() ?? "AI не смог проанализировать логи";
+            }
+
+            return "Неожиданный формат ответа от сервера";
+        }
+        catch (Exception ex)
+        {
+            return $"Ошибка анализа: {ex.Message}\n\nПопробуйте позже или обратитесь в поддержку Discord.";
         }
     }
 }

@@ -256,6 +256,13 @@
                                             <TextBlock Text="ПЕРСОНАЛИЗАЦИЯ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
                                         </Button>
 
+                                        <Button Command="{Binding ShowLogsTabCommand}" Classes="primaryButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Logs}">
+                                            <TextBlock Text="ЛОГИ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+                                        <Button Command="{Binding ShowLogsTabCommand}" Classes="ghostButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.NotEqual}, ConverterParameter=Logs}">
+                                            <TextBlock Text="ЛОГИ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                        </Button>
+
                                         <Button Command="{Binding ShowProfileTabCommand}" Classes="primaryButton" Height="44" Padding="20,0" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Profile}">
                                             <TextBlock Text="ПРОФИЛЬ" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
                                         </Button>
@@ -548,6 +555,50 @@
                                             </Grid>
                                         </Button>
                                     </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <!-- Вкладка: Логи -->
+                            <Grid Grid.Row="1" IsVisible="{Binding CurrentTab, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=Logs}">
+                                <Border Classes="formPanel" Padding="30">
+                                    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="20">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="ЛОГИ ИГРЫ" Classes="microLabel"/>
+                                            <TextBlock Text="Журнал событий Minecraft" Classes="formTitle" FontSize="24"/>
+                                            <TextBlock Text="Просмотр логов игры и анализ ошибок с помощью AI." Classes="bodyText" TextWrapping="Wrap"/>
+                                        </StackPanel>
+
+                                        <Border Grid.Row="1" Classes="pillCard" Padding="20" Background="#0A0A0A" BorderBrush="#333333" BorderThickness="1">
+                                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                                <TextBox Text="{Binding GameLogs}"
+                                                         IsReadOnly="True"
+                                                         TextWrapping="Wrap"
+                                                         FontFamily="Consolas,Courier New,monospace"
+                                                         FontSize="12"
+                                                         Background="Transparent"
+                                                         Foreground="#E0E0E0"
+                                                         BorderThickness="0"
+                                                         AcceptsReturn="True"
+                                                         MinHeight="400"/>
+                                            </ScrollViewer>
+                                        </Border>
+
+                                        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                                            <TextBlock Grid.Column="0" Text="{Binding LogStatus}" Classes="captionText" VerticalAlignment="Center"/>
+
+                                            <Button Grid.Column="1" Command="{Binding RefreshLogsCommand}" Classes="ghostButton" Height="44" Padding="20,0">
+                                                <TextBlock Text="ОБНОВИТЬ" FontWeight="SemiBold" FontSize="14"/>
+                                            </Button>
+
+                                            <Button Grid.Column="2" Command="{Binding AnalyzeLogsWithAICommand}" Classes="primaryButton" Height="44" Padding="20,0" IsEnabled="{Binding !IsAnalyzingLogs}">
+                                                <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="10">
+                                                    <Path Grid.Column="0" Width="16" Height="16" Stretch="Uniform" Fill="#0A0806" VerticalAlignment="Center"
+                                                          Data="M12,2 C17.5,2 22,6.5 22,12 C22,17.5 17.5,22 12,22 C6.5,22 2,17.5 2,12 C2,6.5 6.5,2 12,2 M12,4 C7.6,4 4,7.6 4,12 C4,16.4 7.6,20 12,20 C16.4,20 20,16.4 20,12 C20,7.6 16.4,4 12,4 M12,6 L14,10 L18,10 L15,13 L16,17 L12,14 L8,17 L9,13 L6,10 L10,10 Z"/>
+                                                    <TextBlock Grid.Column="1" Text="АНАЛИЗ AI" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Button>
+                                        </Grid>
+                                    </Grid>
                                 </Border>
                             </Grid>
                         </Grid>
