@@ -35,12 +35,15 @@ if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_
     Console.WriteLine("[Startup] Using temporary JWT secret for development environment.");
 }
 
+// Пробуем разные варианты переменных Railway PostgreSQL
 var databaseUrl = builder.Configuration.GetConnectionString("DATABASE_URL")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL");
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? Environment.GetEnvironmentVariable("DATABASE_PRIVATE_URL")
+    ?? Environment.GetEnvironmentVariable("PGDATABASE_URL");
 
 Console.WriteLine($"[Startup] DATABASE_URL configured: {!string.IsNullOrEmpty(databaseUrl)}");
 Console.WriteLine($"[Startup] DATABASE_URL length: {databaseUrl?.Length ?? 0}");
-Console.WriteLine($"[Startup] DATABASE_URL first 50 chars: {(databaseUrl?.Length > 50 ? databaseUrl.Substring(0, 50) : databaseUrl ?? "null")}");
+Console.WriteLine($"[Startup] DATABASE_URL full: {databaseUrl ?? "null"}");
 
 if (!string.IsNullOrEmpty(databaseUrl))
 {
