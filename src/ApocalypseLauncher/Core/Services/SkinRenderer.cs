@@ -12,6 +12,10 @@ public class SkinRenderer
         if (skinBitmap == null)
             throw new Exception("Failed to load skin");
 
+        // Определяем масштаб скина (64, 128 или 256)
+        int skinSize = skinBitmap.Width;
+        float textureScale = skinSize / 64f; // Масштаб относительно стандартного 64x64
+
         // Создаем canvas для рендера с высоким разрешением
         var info = new SKImageInfo(512, 1024);
         using var surface = SKSurface.Create(info);
@@ -31,28 +35,28 @@ public class SkinRenderer
             FilterQuality = SKFilterQuality.None
         };
 
-        // Рисуем голову
-        var headFront = ExtractTexture(skinBitmap, 8, 8, 8, 8);
+        // Рисуем голову (координаты умножаем на textureScale для HD скинов)
+        var headFront = ExtractTexture(skinBitmap, (int)(8 * textureScale), (int)(8 * textureScale), (int)(8 * textureScale), (int)(8 * textureScale));
         canvas.DrawBitmap(headFront, new SKRect(-4 * scale, 0, 4 * scale, 8 * scale), paint);
 
         // Рисуем тело
-        var bodyFront = ExtractTexture(skinBitmap, 20, 20, 8, 12);
+        var bodyFront = ExtractTexture(skinBitmap, (int)(20 * textureScale), (int)(20 * textureScale), (int)(8 * textureScale), (int)(12 * textureScale));
         canvas.DrawBitmap(bodyFront, new SKRect(-4 * scale, 8 * scale, 4 * scale, 20 * scale), paint);
 
         // Рисуем правую руку
-        var rightArmFront = ExtractTexture(skinBitmap, 44, 20, 4, 12);
+        var rightArmFront = ExtractTexture(skinBitmap, (int)(44 * textureScale), (int)(20 * textureScale), (int)(4 * textureScale), (int)(12 * textureScale));
         canvas.DrawBitmap(rightArmFront, new SKRect(-8 * scale, 8 * scale, -4 * scale, 20 * scale), paint);
 
         // Рисуем левую руку
-        var leftArmFront = ExtractTexture(skinBitmap, 36, 52, 4, 12);
+        var leftArmFront = ExtractTexture(skinBitmap, (int)(36 * textureScale), (int)(52 * textureScale), (int)(4 * textureScale), (int)(12 * textureScale));
         canvas.DrawBitmap(leftArmFront, new SKRect(4 * scale, 8 * scale, 8 * scale, 20 * scale), paint);
 
         // Рисуем правую ногу
-        var rightLegFront = ExtractTexture(skinBitmap, 4, 20, 4, 12);
+        var rightLegFront = ExtractTexture(skinBitmap, (int)(4 * textureScale), (int)(20 * textureScale), (int)(4 * textureScale), (int)(12 * textureScale));
         canvas.DrawBitmap(rightLegFront, new SKRect(-4 * scale, 20 * scale, 0, 32 * scale), paint);
 
         // Рисуем левую ногу
-        var leftLegFront = ExtractTexture(skinBitmap, 20, 52, 4, 12);
+        var leftLegFront = ExtractTexture(skinBitmap, (int)(20 * textureScale), (int)(52 * textureScale), (int)(4 * textureScale), (int)(12 * textureScale));
         canvas.DrawBitmap(leftLegFront, new SKRect(0, 20 * scale, 4 * scale, 32 * scale), paint);
 
         // Сохраняем в PNG
