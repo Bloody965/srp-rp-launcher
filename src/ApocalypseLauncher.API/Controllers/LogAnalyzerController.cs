@@ -11,15 +11,18 @@ public class LogAnalyzerController : ControllerBase
     private readonly ILogger<LogAnalyzerController> _logger;
     private readonly IConfiguration _configuration;
     private readonly HttpClient _httpClient;
+    private readonly RateLimitService _rateLimitService;
 
     public LogAnalyzerController(
         ILogger<LogAnalyzerController> logger,
         IConfiguration configuration,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        RateLimitService rateLimitService)
     {
         _logger = logger;
         _configuration = configuration;
         _httpClient = httpClientFactory.CreateClient();
+        _rateLimitService = rateLimitService;
     }
 
     [HttpPost("analyze")]
@@ -27,6 +30,13 @@ public class LogAnalyzerController : ControllerBase
     {
         try
         {
+            // Rate limiting: 5 запросов в минуту на IP
+            var clientIp = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            if (!_rateLimitService.IsAllowed(clientIp, "log_analysis", 5, TimeSpan.FromMinutes(1)))
+            {
+                return StatusCode(429, new { success = false, message = "Слишком много запросов. Подождите минуту." });
+            }
+
             if (string.IsNullOrWhiteSpace(request.Logs))
             {
                 return BadRequest(new { success = false, message = "Логи не предоставлены" });
