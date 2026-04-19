@@ -47,6 +47,22 @@ Console.WriteLine($"[Startup] DATABASE_URL full: {databaseUrl ?? "null"}");
 
 if (!string.IsNullOrEmpty(databaseUrl))
 {
+    // Конвертируем PostgreSQL URI в Npgsql connection string
+    if (databaseUrl.StartsWith("postgres://") || databaseUrl.StartsWith("postgresql://"))
+    {
+        try
+        {
+            var uri = new Uri(databaseUrl);
+            var connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={uri.UserInfo.Split(':')[0]};Password={uri.UserInfo.Split(':')[1]};SSL Mode=Prefer;Trust Server Certificate=true";
+            Console.WriteLine($"[Startup] Converted connection string: Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={uri.UserInfo.Split(':')[0]};Password=***");
+            databaseUrl = connectionString;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Startup] Error converting DATABASE_URL: {ex.Message}");
+        }
+    }
+
     Console.WriteLine("Using PostgreSQL database");
     builder.Services.AddDbContext<AppDbContext>(options =>
         options.UseNpgsql(databaseUrl));
