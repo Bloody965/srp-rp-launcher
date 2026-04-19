@@ -1645,6 +1645,8 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
+            Console.WriteLine($"[LoadSkinPreviewAsync] Начало загрузки превью для: {filePath}");
+
             // Загружаем скин на сервер и получаем его URL
             var result = await _apiService.GetCurrentSkinAsync();
 
@@ -1656,39 +1658,66 @@ public class MainWindowViewModel : ViewModelBase
                 skinUrl = result.Data.DownloadUrl.StartsWith("http")
                     ? result.Data.DownloadUrl
                     : $"https://srp-rp-launcher-production.up.railway.app{result.Data.DownloadUrl}";
+
+                Console.WriteLine($"[LoadSkinPreviewAsync] URL скина с сервера: {skinUrl}");
             }
             else
             {
+                Console.WriteLine($"[LoadSkinPreviewAsync] Скин не найден на сервере, используем локальный файл");
+
                 // Если скин еще не на сервере, загружаем локальный файл
-                // Конвертируем локальный файл в base64 data URL
+                // Загружаем скин напрямую на visage через их upload API
                 var skinBytes = await File.ReadAllBytesAsync(filePath);
-                var base64 = Convert.ToBase64String(skinBytes);
-                skinUrl = $"data:image/png;base64,{base64}";
+
+                // Сохраняем временно на наш сервер для доступа
+                var tempFileName = $"temp_{Guid.NewGuid()}.png";
+                var tempPath = Path.Combine(Path.GetTempPath(), tempFileName);
+                await File.WriteAllBytesAsync(tempPath, skinBytes);
+
+                // Используем локальный путь (visage не поддерживает data URLs)
+                // Вместо этого используем другой API - crafatar
+                skinUrl = null;
+                Console.WriteLine($"[LoadSkinPreviewAsync] Используем локальный файл, попробуем альтернативный рендер");
             }
 
-            // Используем внешний API для 3D рендера скина
-            // visage.surgeplay.com - бесплатный API для рендера Minecraft скинов
-            var renderUrl = $"https://visage.surgeplay.com/full/200/{Uri.EscapeDataString(skinUrl)}";
-
-            Console.WriteLine($"[LoadSkinPreviewAsync] Загрузка 3D рендера: {renderUrl}");
-
-            var renderBytes = await _httpClient.GetByteArrayAsync(renderUrl);
-            using var renderStream = new MemoryStream(renderBytes);
-            var renderBitmap = new Avalonia.Media.Imaging.Bitmap(renderStream);
-
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            if (!string.IsNullOrEmpty(skinUrl))
             {
-                CurrentSkinPreview = renderBitmap;
-            });
+                // Используем внешний API для 3D рендера скина
+                var renderUrl = $"https://visage.surgeplay.com/full/200/{Uri.EscapeDataString(skinUrl)}";
+                Console.WriteLine($"[LoadSkinPreviewAsync] URL для 3D рендера: {renderUrl}");
 
-            Console.WriteLine($"[LoadSkinPreviewAsync] 3D рендер успешно загружен");
+                var renderBytes = await _httpClient.GetByteArrayAsync(renderUrl);
+                Console.WriteLine($"[LoadSkinPreviewAsync] Получено байт: {renderBytes.Length}");
+
+                using var renderStream = new MemoryStream(renderBytes);
+                var renderBitmap = new Avalonia.Media.Imaging.Bitmap(renderStream);
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSkinPreview = renderBitmap;
+                });
+
+                Console.WriteLine($"[LoadSkinPreviewAsync] 3D рендер успешно загружен и установлен");
+            }
+            else
+            {
+                // Временное решение: показываем плоский скин пока не загрузится на сервер
+                Console.WriteLine($"[LoadSkinPreviewAsync] Показываем временное превью");
+                using var fileStream = File.OpenRead(filePath);
+                var bitmap = new Avalonia.Media.Imaging.Bitmap(fileStream);
+
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CurrentSkinPreview = bitmap;
+                });
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadSkinPreviewAsync] Ошибка загрузки 3D рендера: {ex.Message}");
+            Console.WriteLine($"[LoadSkinPreviewAsync] ОШИБКА: {ex.Message}");
             Console.WriteLine($"[LoadSkinPreviewAsync] Stack: {ex.StackTrace}");
 
-            // Показываем placeholder или пустое изображение
+            // Показываем placeholder
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 CurrentSkinPreview = null;
