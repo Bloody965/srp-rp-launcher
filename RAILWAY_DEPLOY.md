@@ -34,18 +34,15 @@ API сам читает `DATABASE_URL` из окружения (см. `Program.c
 | **`Cors__AllowedOrigins__0`** | Полный origin сайта, например `https://ваш-ник.github.io`. Без слэша в конце. |
 | **`DATABASE_URL`** | Из Postgres (reference). |
 
-В **Production** приложение **не стартует**, если:
+В **Production** без **`Jwt__SecretKey`** (или с плейсхолдером из примера) приложение **не стартует**.
 
-- нет **`Jwt__SecretKey`** (или он «плейсхолдер» из примера), и/или  
-- **пустой список CORS** и не задан обход.
-
-Временный обход (только для отладки):
+Если **`Cors__AllowedOrigins__0`** не задан, API **всё равно поднимается** и использует **`AllowAnyOrigin`** (лаунчер и сайт не ломаются). В логах будет предупреждение — для безопасности лучше указать HTTPS-оригин сайта:
 
 ```text
-CORS_ALLOW_ANY_ORIGIN=true
+Cors__AllowedOrigins__0=https://ваш-статический-сайт.github.io
 ```
 
-Потом удалите и пропишите **`Cors__AllowedOrigins__0`**.
+Опционально явный обход: `CORS_ALLOW_ANY_ORIGIN=true` / `Cors__AllowAnyOrigin=true`.
 
 Шаблон без секретов: `scripts/railway-variables.example.env`.
 

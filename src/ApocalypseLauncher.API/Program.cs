@@ -193,7 +193,15 @@ builder.Services.AddCors(options =>
         else
         {
             policy.AllowAnyOrigin();
-            Console.WriteLine("[CORS] AllowAnyOrigin (список Cors:AllowedOrigins пуст). В production задайте домены сайта.");
+            if (!isDevelopment && !corsAllowAny)
+            {
+                Console.WriteLine(
+                    "[CORS] ВНИМАНИЕ: Cors:AllowedOrigins пуст — включён AllowAnyOrigin. Лаунчер и сайт работают; для жёсткого CORS добавьте в Railway, например: Cors__AllowedOrigins__0=https://ваш-сайт");
+            }
+            else
+            {
+                Console.WriteLine("[CORS] AllowAnyOrigin (список Cors:AllowedOrigins пуст или явно разрешён обход).");
+            }
         }
     });
 });
@@ -210,12 +218,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
-
-if (!isDevelopment && !corsAllowAny && allowedOrigins.Length == 0)
-{
-    throw new InvalidOperationException(
-        "В production укажите Cors:AllowedOrigins (HTTPS-домен сайта) или временно CORS_ALLOW_ANY_ORIGIN=true / Cors:AllowAnyOrigin=true.");
-}
 
 app.Use(async (context, next) =>
 {
