@@ -92,7 +92,7 @@ public class YggdrasilController : ControllerBase
                 }
             }
 
-            var profile = await BuildProfileResponseAsync(user);
+            var profile = await BuildProfileResponseAsync(user, uuid);
 
             _logger.LogInformation($"Profile requested for UUID {uuid} (user: {user.Username})");
 
@@ -188,7 +188,7 @@ public class YggdrasilController : ControllerBase
                 return NotFound();
             }
 
-            var profile = await BuildProfileResponseAsync(user);
+            var profile = await BuildProfileResponseAsync(user, userUuid.Replace("-", ""));
             return Ok(profile);
         }
         catch (Exception ex)
@@ -212,10 +212,31 @@ public class YggdrasilController : ControllerBase
         var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
         hash[6] = (byte)((hash[6] & 0x0F) | 0x30);
         hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
-        return new Guid(hash).ToString();
+        return FormatUuidJavaStyle(hash);
     }
 
-    private async Task<object> BuildProfileResponseAsync(Models.User user)
+    private static string FormatUuidJavaStyle(byte[] bytes)
+    {
+        // Java UUID uses network byte order; .NET Guid(byte[]) reorders bytes.
+        return string.Create(36, bytes, static (span, src) =>
+        {
+            var hex = "0123456789abcdef";
+            var j = 0;
+            for (var i = 0; i < 16; i++)
+            {
+                if (i == 4 || i == 6 || i == 8 || i == 10)
+                {
+                    span[j++] = '-';
+                }
+
+                var b = src[i];
+                span[j++] = hex[b >> 4];
+                span[j++] = hex[b & 0x0F];
+            }
+        });
+    }
+
+    private async Task<object> BuildProfileResponseAsync(Models.User user, string? profileIdOverride = null)
     {
         // Получаем активный скин пользователя
         var skin = await _context.PlayerSkins
@@ -251,10 +272,14 @@ public class YggdrasilController : ControllerBase
             };
         }
 
+        var effectiveProfileId = string.IsNullOrWhiteSpace(profileIdOverride)
+            ? user.MinecraftUUID.Replace("-", "")
+            : profileIdOverride.Replace("-", "");
+
         var texturesPayload = new
         {
             timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            profileId = user.MinecraftUUID.Replace("-", ""),
+            profileId = effectiveProfileId,
             profileName = user.Username,
             textures = textures
         };
@@ -264,7 +289,7 @@ public class YggdrasilController : ControllerBase
 
         return new
         {
-            id = user.MinecraftUUID.Replace("-", ""),
+            id = effectiveProfileId,
             name = user.Username,
             properties = new[]
             {
