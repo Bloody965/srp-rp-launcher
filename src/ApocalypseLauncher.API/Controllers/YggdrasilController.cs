@@ -19,6 +19,7 @@ public class YggdrasilController : ControllerBase
     private readonly string _baseUrl;
     private readonly JwtService _jwtService;
     private readonly IMemoryCache _cache;
+    private readonly YggdrasilSignatureService _signatureService;
 
     private static readonly TimeSpan JoinSessionTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan UuidLookupTtl = TimeSpan.FromHours(24);
@@ -28,13 +29,15 @@ public class YggdrasilController : ControllerBase
         ILogger<YggdrasilController> logger,
         IConfiguration configuration,
         JwtService jwtService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        YggdrasilSignatureService signatureService)
     {
         _context = context;
         _logger = logger;
         _baseUrl = configuration["BaseUrl"] ?? "https://srp-rp-launcher-production.up.railway.app";
         _jwtService = jwtService;
         _cache = cache;
+        _signatureService = signatureService;
     }
 
     // Метаданные сервера аутентификации (корневой endpoint)
@@ -56,7 +59,7 @@ public class YggdrasilController : ControllerBase
                 }
             },
             skinDomains = new[] { "srp-rp-launcher-production.up.railway.app" },
-            signaturePublickey = (string?)null
+            signaturePublickey = _signatureService.PublicKeyBase64
         };
 
         return Ok(metadata);
@@ -287,6 +290,8 @@ public class YggdrasilController : ControllerBase
         var texturesJson = JsonSerializer.Serialize(texturesPayload);
         var texturesBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(texturesJson));
 
+        var signatureBase64 = _signatureService.SignTextures(texturesBase64);
+
         return new
         {
             id = effectiveProfileId,
@@ -296,7 +301,8 @@ public class YggdrasilController : ControllerBase
                 new
                 {
                     name = "textures",
-                    value = texturesBase64
+                    value = texturesBase64,
+                    signature = signatureBase64
                 }
             }
         };

@@ -104,6 +104,7 @@ builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddSingleton<MinecraftServerService>();
 builder.Services.AddSingleton<SkinValidationService>();
+builder.Services.AddSingleton<YggdrasilSignatureService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHttpClient();

@@ -2095,9 +2095,12 @@ public class MainWindowViewModel : ViewModelBase
             // Скачиваем authlib-injector если его нет
             await DownloadAuthlibInjectorIfNeededAsync();
 
-            // Для мультиплеера и скинов важно использовать серверный UUID и accessToken.
-            // Если сессии нет (например, пользователь не залогинен), остаёмся в offline режиме.
+            // Для offline-mode серверов UUID должен строго совпадать с алгоритмом OfflinePlayer:<name>.
+            // Поэтому даже при API-сессии берём access token из сессии, но UUID пересчитываем локально.
             var authResult = _sessionAuthResult ?? _authService.AuthenticateOffline(Username);
+            var offlineIdentity = _authService.AuthenticateOffline(Username);
+            authResult.UUID = offlineIdentity.UUID;
+            authResult.MinecraftUUID = offlineIdentity.UUID;
 
             // CreateLaunchOptions автоматически определит Forge или vanilla
             var launchOptions = _installer.CreateLaunchOptions(authResult);
