@@ -218,6 +218,16 @@ public class SkinsController : ControllerBase
             return NotFound();
         }
 
+        var etag = $"\"{skin.FileHash}\"";
+        Response.Headers.ETag = etag;
+        Response.Headers.CacheControl = "public, max-age=3600";
+
+        var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
+        if (!string.IsNullOrWhiteSpace(ifNoneMatch) && ifNoneMatch.Contains(etag, StringComparison.Ordinal))
+        {
+            return StatusCode(StatusCodes.Status304NotModified);
+        }
+
         return File(skin.FileData, "image/png", $"skin_{userId}.png");
     }
 
@@ -364,6 +374,16 @@ public class SkinsController : ControllerBase
         {
             _logger.LogWarning($"Cape data is empty for user {userId}");
             return NotFound();
+        }
+
+        var etag = $"\"{cape.FileHash}\"";
+        Response.Headers.ETag = etag;
+        Response.Headers.CacheControl = "public, max-age=3600";
+
+        var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
+        if (!string.IsNullOrWhiteSpace(ifNoneMatch) && ifNoneMatch.Contains(etag, StringComparison.Ordinal))
+        {
+            return StatusCode(StatusCodes.Status304NotModified);
         }
 
         return File(cape.FileData, "image/png", $"cape_{userId}.png");

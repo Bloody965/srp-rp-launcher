@@ -24,6 +24,7 @@ public class MainWindowViewModel : ViewModelBase
     private string _minecraftDirectory;
     private readonly HttpClient _httpClient;
     private bool _isLoadingSkinPreview = false;
+    private AuthResult? _sessionAuthResult;
 
     public MainWindowViewModel()
     {
@@ -166,11 +167,14 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private void SaveToken(string token, string username, string email)
+    private void SaveToken(string token, string username, string email, string? minecraftUuid = null)
     {
         try
         {
-            var data = $"{token}|{username}|{email}";
+            // Format v2: token|username|email|minecraftUuid
+            // Format v1 fallback: token|username|email
+            var safeUuid = minecraftUuid ?? string.Empty;
+            var data = $"{token}|{username}|{email}|{safeUuid}";
             File.WriteAllText(GetTokenFilePath(), data);
             Console.WriteLine("[SaveToken] Токен сохранен");
         }
@@ -192,7 +196,7 @@ public class MainWindowViewModel : ViewModelBase
             }
 
             var data = File.ReadAllText(tokenFile).Split('|');
-            if (data.Length != 3)
+            if (data.Length < 3)
             {
                 Console.WriteLine("[TryAutoLogin] Неверный формат токена");
                 return;
@@ -201,6 +205,7 @@ public class MainWindowViewModel : ViewModelBase
             var token = data[0];
             var username = data[1];
             var email = data[2];
+            var minecraftUuid = data.Length >= 4 ? data[3] : string.Empty;
 
             _apiService.SetAuthToken(token);
             var verifyResult = await _apiService.VerifyTokenAsync();
@@ -215,6 +220,25 @@ public class MainWindowViewModel : ViewModelBase
                     UserEmail = email;
                     StatusMessage = $"Добро пожаловать, {username}!";
                 });
+
+                // Подготавливаем auth-данные для запуска игры.
+                // Даже если UUID не был сохранён (старый формат session.dat), offline-UUID алгоритм совпадает с серверным.
+                if (string.IsNullOrWhiteSpace(minecraftUuid))
+                {
+                    minecraftUuid = _authService.AuthenticateOffline(username).UUID;
+                }
+
+                _sessionAuthResult = new AuthResult
+                {
+                    Token = token,
+                    Username = username,
+                    Email = email,
+                    MinecraftUUID = minecraftUuid,
+                    UUID = minecraftUuid,
+                    AccessToken = token,
+                    IsOffline = false,
+                    CreatedAt = DateTime.Now
+                };
 
                 CheckInstallation();
                 await CheckModpackVersionAsync();
@@ -481,14 +505,38 @@ public class MainWindowViewModel : ViewModelBase
     public bool IsClassicSkin
     {
         get => _isClassicSkin;
-        set => this.RaiseAndSetIfChanged(ref _isClassicSkin, value);
+        set
+        {
+            if (!this.RaiseAndSetIfChanged(ref _isClassicSkin, value))
+            {
+                return;
+            }
+
+            if (value == _isSlimSkin)
+            {
+                _isSlimSkin = !value;
+                this.RaisePropertyChanged(nameof(IsSlimSkin));
+            }
+        }
     }
 
     private bool _isSlimSkin = false;
     public bool IsSlimSkin
     {
         get => _isSlimSkin;
-        set => this.RaiseAndSetIfChanged(ref _isSlimSkin, value);
+        set
+        {
+            if (!this.RaiseAndSetIfChanged(ref _isSlimSkin, value))
+            {
+                return;
+            }
+
+            if (value == _isClassicSkin)
+            {
+                _isClassicSkin = !value;
+                this.RaisePropertyChanged(nameof(IsClassicSkin));
+            }
+        }
     }
 
     private string _skinStatus = "Скин не загружен";
@@ -503,6 +551,13 @@ public class MainWindowViewModel : ViewModelBase
     {
         get => _currentSkinPreview;
         set => this.RaiseAndSetIfChanged(ref _currentSkinPreview, value);
+    }
+
+    private string? _currentSkinPath;
+    public string? CurrentSkinPath
+    {
+        get => _currentSkinPath;
+        set => this.RaiseAndSetIfChanged(ref _currentSkinPath, value);
     }
 
     private bool _isLoggedIn;
@@ -669,6 +724,8 @@ public class MainWindowViewModel : ViewModelBase
         CurrentView = "Login";
         Password = "";
         LoginErrorMessage = null;
+        CurrentSkinPath = null;
+        CurrentSkinPreview = null;
         StatusMessage = "Вы вышли из аккаунта";
 
         // Удаляем сохраненный токен
@@ -935,6 +992,7 @@ public class MainWindowViewModel : ViewModelBase
 
     private void PrepareForSuccessfulLogin(AuthResult result)
     {
+        _sessionAuthResult = result;
         IsLoggedIn = true;
         IsRegistering = false;
         IsResettingPassword = false;
@@ -1824,7 +1882,7 @@ public class MainWindowViewModel : ViewModelBase
             if (result.IsSuccess && result.Data != null)
             {
                 PrepareForSuccessfulLogin(result.Data);
-                SaveToken(result.Data.Token ?? string.Empty, result.Data.Username, result.Data.Email);
+                SaveToken(result.Data.Token ?? string.Empty, result.Data.Username, result.Data.Email, result.Data.MinecraftUUID);
                 Console.WriteLine("[LoginAsync] Вход успешен");
 
                 CheckInstallation();
@@ -2037,7 +2095,9 @@ public class MainWindowViewModel : ViewModelBase
             // Скачиваем authlib-injector если его нет
             await DownloadAuthlibInjectorIfNeededAsync();
 
-            var authResult = _authService.AuthenticateOffline(Username);
+            // Для мультиплеера и скинов важно использовать серверный UUID и accessToken.
+            // Если сессии нет (например, пользователь не залогинен), остаёмся в offline режиме.
+            var authResult = _sessionAuthResult ?? _authService.AuthenticateOffline(Username);
 
             // CreateLaunchOptions автоматически определит Forge или vanilla
             var launchOptions = _installer.CreateLaunchOptions(authResult);
@@ -2167,9 +2227,12 @@ public class MainWindowViewModel : ViewModelBase
                 // Копируем скин в директорию Minecraft для отображения в игре
                 await CopySkinToMinecraftAsync(localSkinPath);
 
+                var cachedSkinType = LoadLocalSkinType();
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    SkinStatus = "Скин загружен из кэша";
+                    CurrentSkinPath = localSkinPath;
+                    ApplySkinType(cachedSkinType);
+                    SkinStatus = $"Скин загружен из кэша ({cachedSkinType})";
                 });
             }
 
@@ -2194,8 +2257,11 @@ public class MainWindowViewModel : ViewModelBase
                 // Загружаем превью
                 await LoadSkinPreviewAsync(localSkinPath);
 
+                SaveLocalSkinType(result.Data.SkinType);
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    CurrentSkinPath = localSkinPath;
+                    ApplySkinType(result.Data.SkinType);
                     SkinStatus = $"Скин загружен ({result.Data.SkinType})";
                 });
 
@@ -2206,6 +2272,8 @@ public class MainWindowViewModel : ViewModelBase
                 // Нет ни локального, ни серверного скина
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
+                    CurrentSkinPath = null;
+                    CurrentSkinPreview = null;
                     SkinStatus = "Скин не загружен";
                 });
             }
@@ -2222,9 +2290,12 @@ public class MainWindowViewModel : ViewModelBase
                 {
                     await CopySkinToMinecraftAsync(localSkinPath);
                     await LoadSkinPreviewAsync(localSkinPath);
+                    var cachedSkinType = LoadLocalSkinType();
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        SkinStatus = "Скин загружен из кэша (офлайн)";
+                        CurrentSkinPath = localSkinPath;
+                        ApplySkinType(cachedSkinType);
+                        SkinStatus = $"Скин загружен из кэша (офлайн, {cachedSkinType})";
                     });
                 }
                 catch (Exception cacheEx)
@@ -2254,6 +2325,76 @@ public class MainWindowViewModel : ViewModelBase
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var launcherDir = Path.Combine(appData, "SRP-RP-Launcher", "cache");
         return Path.Combine(launcherDir, $"{Username}_skin.png");
+    }
+
+    private string GetLocalSkinTypePath()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var launcherDir = Path.Combine(appData, "SRP-RP-Launcher", "cache");
+        return Path.Combine(launcherDir, $"{Username}_skin_type.txt");
+    }
+
+    private void SaveLocalSkinType(string skinType)
+    {
+        try
+        {
+            var skinTypePath = GetLocalSkinTypePath();
+            var skinDir = Path.GetDirectoryName(skinTypePath);
+            if (!string.IsNullOrEmpty(skinDir))
+            {
+                Directory.CreateDirectory(skinDir);
+            }
+
+            File.WriteAllText(skinTypePath, skinType);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SaveLocalSkinType] Ошибка: {ex.Message}");
+        }
+    }
+
+    private void ApplySkinType(string skinType)
+    {
+        IsClassicSkin = skinType != "slim";
+        IsSlimSkin = skinType == "slim";
+    }
+
+    private string LoadLocalSkinType()
+    {
+        try
+        {
+            var skinTypePath = GetLocalSkinTypePath();
+            if (File.Exists(skinTypePath))
+            {
+                var skinType = File.ReadAllText(skinTypePath).Trim().ToLowerInvariant();
+                if (skinType == "slim")
+                {
+                    return "slim";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[LoadLocalSkinType] Ошибка: {ex.Message}");
+        }
+
+        return "classic";
+    }
+
+    private void DeleteLocalSkinType()
+    {
+        try
+        {
+            var skinTypePath = GetLocalSkinTypePath();
+            if (File.Exists(skinTypePath))
+            {
+                File.Delete(skinTypePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DeleteLocalSkinType] Ошибка: {ex.Message}");
+        }
     }
 
     private void StartEditNickname()
@@ -2461,6 +2602,8 @@ public class MainWindowViewModel : ViewModelBase
                     Directory.CreateDirectory(skinDir);
                 }
                 File.Copy(filePath, localSkinPath, overwrite: true);
+                SaveLocalSkinType(skinType);
+                CurrentSkinPath = localSkinPath;
 
                 // Загружаем превью из загруженного файла
                 await LoadSkinPreviewAsync(localSkinPath);
@@ -2488,6 +2631,17 @@ public class MainWindowViewModel : ViewModelBase
 
             if (success)
             {
+                var localSkinPath = GetLocalSkinPath();
+                var skinDir = Path.GetDirectoryName(localSkinPath);
+                if (!string.IsNullOrEmpty(skinDir))
+                {
+                    Directory.CreateDirectory(skinDir);
+                }
+
+                File.Copy(filePath, localSkinPath, overwrite: true);
+                SaveLocalSkinType(skinType);
+                CurrentSkinPath = localSkinPath;
+                await LoadSkinPreviewAsync(localSkinPath);
                 SkinStatus = $"Скин загружен ({skinType})";
             }
         }
@@ -2592,7 +2746,10 @@ public class MainWindowViewModel : ViewModelBase
             if (success)
             {
                 SkinStatus = "Скин удален";
+                CurrentSkinPath = null;
                 CurrentSkinPreview = null;
+
+                DeleteLocalSkinType();
 
                 // Удаляем локальный кэш
                 var localSkinPath = GetLocalSkinPath();

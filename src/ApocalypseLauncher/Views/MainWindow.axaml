@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ApocalypseLauncher.ViewModels"
+        xmlns:controls="using:ApocalypseLauncher.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1400" d:DesignHeight="860"
@@ -442,9 +443,10 @@
 
                                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="30">
                                             <Border Grid.Column="0" Width="280" Height="560" Background="#15FFF2D8" CornerRadius="8" BorderBrush="#557A6245" BorderThickness="1" Padding="20">
-                                                <Viewbox Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Image Source="{Binding CurrentSkinPreview}" Stretch="None"/>
-                                                </Viewbox>
+                                                <controls:SkinPreview3DControl SkinPath="{Binding CurrentSkinPath}"
+                                                                               IsSlimModel="{Binding IsSlimSkin}"
+                                                                               HorizontalAlignment="Stretch"
+                                                                               VerticalAlignment="Stretch"/>
                                             </Border>
 
                                             <StackPanel Grid.Column="1" Spacing="16" VerticalAlignment="Center" MaxWidth="400">
@@ -480,6 +482,7 @@
                                                 </StackPanel>
 
                                                 <TextBlock Text="{Binding SkinStatus}" Classes="captionText" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#D3924D" FontSize="14"/>
+                                                <TextBlock Text="Зажмите ЛКМ, чтобы вращать модель" Classes="captionText" TextWrapping="Wrap" Foreground="#8D8B85" FontSize="13"/>
                                             </StackPanel>
                                         </Grid>
                                     </StackPanel>
@@ -532,7 +535,9 @@
 
                                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="20">
                                                     <Border Grid.Column="0" Width="128" Height="256" Background="#15FFF2D8" CornerRadius="8" BorderBrush="#557A6245" BorderThickness="1">
-                                                        <Image Source="{Binding CurrentSkinPreview}" Stretch="Uniform" Width="120" Height="240"/>
+                                                        <controls:SkinPreview3DControl SkinPath="{Binding CurrentSkinPath}"
+                                                                                       IsSlimModel="{Binding IsSlimSkin}"
+                                                                                       Margin="4"/>
                                                     </Border>
 
                                                     <StackPanel Grid.Column="1" Spacing="12" VerticalAlignment="Center">
