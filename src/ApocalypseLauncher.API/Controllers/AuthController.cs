@@ -186,6 +186,15 @@ public class AuthController : ControllerBase
             });
         }
 
+        // Держим UUID синхронизированным с текущим ником.
+        // Иначе в одиночной игре/на сервере profile/{uuid} может уходить в 404 и скин не загрузится.
+        var expectedMinecraftUuid = _passwordService.GenerateMinecraftUUID(user.Username);
+        if (!string.Equals(user.MinecraftUUID, expectedMinecraftUuid, StringComparison.OrdinalIgnoreCase))
+        {
+            user.MinecraftUUID = expectedMinecraftUuid;
+            user.UpdatedAt = DateTime.UtcNow;
+        }
+
         if (await HasPendingAdminPasswordResetAsync(user.Id))
         {
             await LogAction(user.Id, "LOGIN_BLOCKED_FORCE_PASSWORD_RESET", $"IP: {ip}", ip);
@@ -607,6 +616,7 @@ public class AuthController : ControllerBase
         await LogAction(userId.Value, "USERNAME_CHANGED", $"Old: {user.Username}, New: {request.NewUsername}", ip);
 
         user.Username = request.NewUsername;
+        user.MinecraftUUID = _passwordService.GenerateMinecraftUUID(request.NewUsername);
         user.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
