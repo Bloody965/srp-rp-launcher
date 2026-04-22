@@ -7,6 +7,7 @@ using ApocalypseLauncher.API.Services;
 using Microsoft.Extensions.Caching.Memory;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.Generic;
 
 namespace ApocalypseLauncher.API.Controllers;
 
@@ -16,7 +17,8 @@ public class YggdrasilController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly ILogger<YggdrasilController> _logger;
-    private readonly string _baseUrl;
+    private readonly IConfiguration _configuration;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly JwtService _jwtService;
     private readonly IMemoryCache _cache;
     private readonly YggdrasilSignatureService _signatureService;
@@ -28,16 +30,87 @@ public class YggdrasilController : ControllerBase
         AppDbContext context,
         ILogger<YggdrasilController> logger,
         IConfiguration configuration,
+        IHttpContextAccessor httpContextAccessor,
         JwtService jwtService,
         IMemoryCache cache,
         YggdrasilSignatureService signatureService)
     {
         _context = context;
         _logger = logger;
-        _baseUrl = configuration["BaseUrl"] ?? "https://srp-rp-launcher-production.up.railway.app";
+        _configuration = configuration;
+        _httpContextAccessor = httpContextAccessor;
         _jwtService = jwtService;
         _cache = cache;
         _signatureService = signatureService;
+    }
+
+    /// <summary>
+    /// Публичный URL API (скины, Yggdrasil). Должен совпадать с хостом в skinDomains, иначе authlib-injector отбрасывает текстуры.
+    /// </summary>
+    private string GetPublicBaseUrl()
+    {
+        var configured = _configuration["BaseUrl"]?.Trim().TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(configured))
+            return configured;
+
+        var railway = Environment.GetEnvironmentVariable("RAILWAY_PUBLIC_DOMAIN")?.Trim();
+        if (!string.IsNullOrWhiteSpace(railway))
+        {
+            if (railway.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || railway.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return railway.TrimEnd('/');
+            return $"https://{railway}".TrimEnd('/');
+        }
+
+        var publicUrl = Environment.GetEnvironmentVariable("PUBLIC_URL")?.Trim().TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(publicUrl))
+            return publicUrl;
+
+        var ctx = _httpContextAccessor.HttpContext;
+        if (ctx != null)
+        {
+            var req = ctx.Request;
+            if (!string.IsNullOrWhiteSpace(req.Host.Value))
+                return $"{req.Scheme}://{req.Host.Value}".TrimEnd('/');
+        }
+
+        return "https://srp-rp-launcher-production.up.railway.app";
+    }
+
+    /// <summary>Хосты, с которых разрешена загрузка скинов (authlib проверяет host URL текстуры).</summary>
+    private string[] GetSkinDomains()
+    {
+        var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAddHostFromUrl(string? url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                return;
+            if (!string.IsNullOrEmpty(uri.Host))
+                hosts.Add(uri.Host);
+        }
+
+        TryAddHostFromUrl(GetPublicBaseUrl());
+        TryAddHostFromUrl(_configuration["BaseUrl"]);
+
+        var extra = _configuration["Yggdrasil:ExtraSkinDomains"];
+        if (!string.IsNullOrWhiteSpace(extra))
+        {
+            foreach (var part in extra.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (Uri.TryCreate(part, UriKind.Absolute, out var u) && !string.IsNullOrEmpty(u.Host))
+                    hosts.Add(u.Host);
+                else if (!part.Contains('/') && !string.IsNullOrWhiteSpace(part))
+                    hosts.Add(part);
+            }
+        }
+
+        if (hosts.Count == 0)
+            hosts.Add("srp-rp-launcher-production.up.railway.app");
+
+        return hosts.ToArray();
     }
 
     // Метаданные сервера аутентификации (корневой endpoint)
@@ -58,7 +131,7 @@ public class YggdrasilController : ControllerBase
                     no_mojang_namespace = true
                 }
             },
-            skinDomains = new[] { "srp-rp-launcher-production.up.railway.app" },
+            skinDomains = GetSkinDomains(),
             // authlib-injector ожидает PEM (см. APIMetadata / KeyUtils.parseSignaturePublicKey), не сырой base64 SPKI
             signaturePublickey = _signatureService.PublicKeyPem
         };
@@ -269,11 +342,13 @@ public class YggdrasilController : ControllerBase
 
         var textures = new Dictionary<string, object>();
 
+        var publicBase = GetPublicBaseUrl();
+
         if (skin != null)
         {
             textures["SKIN"] = new
             {
-                url = $"{_baseUrl}/api/skins/download/{user.Id}",
+                url = $"{publicBase}/api/skins/download/{user.Id}",
                 metadata = new
                 {
                     model = skin.SkinType == "slim" ? "slim" : "default"
@@ -285,7 +360,7 @@ public class YggdrasilController : ControllerBase
         {
             textures["CAPE"] = new
             {
-                url = $"{_baseUrl}/api/skins/capes/download/{user.Id}"
+                url = $"{publicBase}/api/skins/capes/download/{user.Id}"
             };
         }
 

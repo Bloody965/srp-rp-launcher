@@ -175,10 +175,14 @@ builder.Services.AddCors(options =>
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedProto
+        | ForwardedHeaders.XForwardedHost;
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
+
+builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
@@ -243,25 +247,8 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"Warning: Schema migration failed: {ex.Message}");
     }
 
-    // Удаляем старые скины и плащи без FileData (миграция данных)
-    try
-    {
-        var oldSkins = db.PlayerSkins.Where(s => s.FileData == null).ToList();
-        var oldCapes = db.PlayerCapes.Where(c => c.FileData == null).ToList();
-
-        if (oldSkins.Count > 0 || oldCapes.Count > 0)
-        {
-            Console.WriteLine($"Cleaning up {oldSkins.Count} old skins and {oldCapes.Count} old capes without FileData...");
-            db.PlayerSkins.RemoveRange(oldSkins);
-            db.PlayerCapes.RemoveRange(oldCapes);
-            db.SaveChanges();
-            Console.WriteLine("Old skins and capes cleaned up successfully");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Warning: Failed to clean up old skins/capes: {ex.Message}");
-    }
+    // Не удаляем скины/плащи с FileData=null при каждом старте: это приводило к потере скинов
+    // после деплоя при сбоях миграции или временных NULL в БД.
 }
 
 app.UseForwardedHeaders();
