@@ -107,6 +107,7 @@ public class MainWindowViewModel : ViewModelBase
         ShowLogsTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Logs"; });
         ShowProfileTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Profile"; });
         ShowAdminTabCommand = ReactiveCommand.CreateFromTask(ShowAdminTabAsync);
+        UnlockAdminPanelCommand = ReactiveCommand.CreateFromTask(UnlockAdminPanelAsync);
         RefreshLogsCommand = ReactiveCommand.CreateFromTask(RefreshLogsAsync);
         AnalyzeLogsWithAICommand = ReactiveCommand.CreateFromTask(AnalyzeLogsWithAIAsync);
         CloseLogAnalysisCommand = ReactiveCommand.Create(CloseLogAnalysis);
@@ -496,6 +497,26 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isResettingPassword, value);
     }
 
+    private bool _isForcedPasswordReset;
+    public bool IsForcedPasswordReset
+    {
+        get => _isForcedPasswordReset;
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isForcedPasswordReset, value))
+            {
+                this.RaisePropertyChanged(nameof(ResetPasswordHelpText));
+            }
+        }
+    }
+
+    private string _forcedPasswordResetMessage = string.Empty;
+    public string ForcedPasswordResetMessage
+    {
+        get => _forcedPasswordResetMessage;
+        set => this.RaiseAndSetIfChanged(ref _forcedPasswordResetMessage, value);
+    }
+
     private bool _isLoggingIn;
     public bool IsLoggingIn
     {
@@ -726,6 +747,20 @@ public class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<AdminUserItem> AdminUsers { get; } = new();
 
+    private string _adminSecurityKey = string.Empty;
+    public string AdminSecurityKey
+    {
+        get => _adminSecurityKey;
+        set => this.RaiseAndSetIfChanged(ref _adminSecurityKey, value);
+    }
+
+    private bool _isAdminPanelUnlocked;
+    public bool IsAdminPanelUnlocked
+    {
+        get => _isAdminPanelUnlocked;
+        set => this.RaiseAndSetIfChanged(ref _isAdminPanelUnlocked, value);
+    }
+
     private string _gameLogs = "Логи игры появятся здесь после запуска Minecraft...";
     public string GameLogs
     {
@@ -766,6 +801,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> ShowLogsTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowProfileTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowAdminTabCommand { get; }
+    public ReactiveCommand<Unit, Unit> UnlockAdminPanelCommand { get; }
 
     public ReactiveCommand<Unit, Unit> LoginCommand { get; }
     public ReactiveCommand<Unit, Unit> RegisterCommand { get; }
@@ -834,7 +870,48 @@ public class MainWindowViewModel : ViewModelBase
         }
 
         CurrentTab = "Admin";
-        await LoadAdminUsersAsync();
+        if (IsAdminPanelUnlocked)
+        {
+            await LoadAdminUsersAsync();
+        }
+        else
+        {
+            AdminStatusMessage = "Введите Admin Security Key, чтобы разблокировать админ-панель";
+        }
+    }
+
+    private async Task UnlockAdminPanelAsync()
+    {
+        if (!IsAdmin)
+        {
+            AdminStatusMessage = "Нет прав администратора";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(AdminSecurityKey))
+        {
+            AdminStatusMessage = "Введите Admin Security Key";
+            return;
+        }
+
+        IsAdminBusy = true;
+        try
+        {
+            var access = await _apiService.GetAdminAccessAsync(AdminSecurityKey.Trim());
+            IsAdminPanelUnlocked = access.Data == true;
+            if (!IsAdminPanelUnlocked)
+            {
+                AdminStatusMessage = "Неверный Admin Security Key";
+                return;
+            }
+
+            AdminStatusMessage = "Админ-панель разблокирована";
+            await LoadAdminUsersAsync();
+        }
+        finally
+        {
+            IsAdminBusy = false;
+        }
     }
 
     private async Task RefreshAdminAccessAsync()
@@ -844,6 +921,8 @@ public class MainWindowViewModel : ViewModelBase
             var access = await _apiService.GetAdminAccessAsync();
             IsAdmin = access.Data == true;
             AdminStatusMessage = IsAdmin ? "Админ-доступ подтвержден" : "У вас нет прав администратора";
+            IsAdminPanelUnlocked = false;
+            AdminSecurityKey = string.Empty;
             if (!IsAdmin && CurrentTab == "Admin")
             {
                 CurrentTab = "Home";
@@ -863,11 +942,17 @@ public class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        if (!IsAdminPanelUnlocked || string.IsNullOrWhiteSpace(AdminSecurityKey))
+        {
+            AdminStatusMessage = "Сначала разблокируйте админ-панель через Admin Security Key";
+            return;
+        }
+
         try
         {
             IsAdminBusy = true;
             AdminStatusMessage = "Загрузка игроков...";
-            var result = await _apiService.GetAdminUsersAsync();
+            var result = await _apiService.GetAdminUsersAsync(AdminSecurityKey.Trim());
             if (!result.IsSuccess || result.Data == null)
             {
                 AdminStatusMessage = result.ErrorMessage ?? "Не удалось загрузить список игроков";
@@ -884,6 +969,7 @@ public class MainWindowViewModel : ViewModelBase
                     IsActive = user.IsActive,
                     IsBanned = user.IsBanned,
                     IsWhitelisted = user.IsWhitelisted,
+                    RequiresPasswordReset = user.RequiresPasswordReset,
                     CreatedAt = user.CreatedAt,
                     LastLoginAt = user.LastLoginAt
                 });
@@ -910,18 +996,16 @@ public class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(AdminNewPassword))
-        {
-            AdminStatusMessage = "Введите новый пароль для сброса";
-            return;
-        }
-
         try
         {
             IsAdminBusy = true;
-            var result = await _apiService.AdminResetUserPasswordAsync(SelectedAdminUser.Id, AdminNewPassword.Trim());
-            AdminStatusMessage = result.IsSuccess ? (result.Data ?? "Пароль сброшен") : (result.ErrorMessage ?? "Ошибка сброса пароля");
+            var note = string.IsNullOrWhiteSpace(AdminNewPassword) ? null : AdminNewPassword.Trim();
+            var result = await _apiService.AdminResetUserPasswordAsync(SelectedAdminUser.Id, note, AdminSecurityKey.Trim());
+            AdminStatusMessage = result.IsSuccess
+                ? (result.Data ?? "Игроку включена принудительная смена пароля")
+                : (result.ErrorMessage ?? "Ошибка включения принудительной смены пароля");
             AdminNewPassword = string.Empty;
+            await LoadAdminUsersAsync();
         }
         finally
         {
@@ -942,7 +1026,7 @@ public class MainWindowViewModel : ViewModelBase
             IsAdminBusy = true;
             var targetBanState = !SelectedAdminUser.IsBanned;
             var reason = targetBanState ? AdminBanReason?.Trim() : null;
-            var result = await _apiService.AdminSetBanAsync(SelectedAdminUser.Id, targetBanState, reason);
+            var result = await _apiService.AdminSetBanAsync(SelectedAdminUser.Id, targetBanState, AdminSecurityKey.Trim(), reason);
             AdminStatusMessage = result.IsSuccess ? (result.Data ?? "Статус блокировки обновлен") : (result.ErrorMessage ?? "Ошибка обновления блокировки");
 
             if (result.IsSuccess)
@@ -978,7 +1062,7 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             IsAdminBusy = true;
-            var result = await _apiService.AdminDeleteUserAsync(SelectedAdminUser.Id);
+            var result = await _apiService.AdminDeleteUserAsync(SelectedAdminUser.Id, AdminSecurityKey.Trim());
             AdminStatusMessage = result.IsSuccess ? (result.Data ?? "Пользователь удален") : (result.ErrorMessage ?? "Ошибка удаления пользователя");
             if (result.IsSuccess)
             {
@@ -1000,7 +1084,11 @@ public class MainWindowViewModel : ViewModelBase
         LoginErrorMessage = null;
         CurrentSkinPath = null;
         CurrentSkinPreview = null;
+        IsForcedPasswordReset = false;
+        ForcedPasswordResetMessage = string.Empty;
         IsAdmin = false;
+        IsAdminPanelUnlocked = false;
+        AdminSecurityKey = string.Empty;
         IsAdminBusy = false;
         CurrentTab = "Home";
         AdminUsers.Clear();
@@ -1140,7 +1228,9 @@ public class MainWindowViewModel : ViewModelBase
                 ? "Сохраняем новый пароль..."
                 : string.Empty;
 
-    public string ResetPasswordHelpText => "Используйте имя пользователя и код восстановления, который вы получили при регистрации. Код не отправляется на почту и не показывается повторно.";
+    public string ResetPasswordHelpText => IsForcedPasswordReset
+        ? "Администратор запросил смену пароля. Введите одноразовый код сброса и задайте новый пароль."
+        : "Используйте имя пользователя и код восстановления, который вы получили при регистрации. Код не отправляется на почту и не показывается повторно.";
     public string RegistrationHelpText => "После регистрации мы один раз покажем код восстановления. Сохраните его сразу — он нужен для сброса пароля.";
     public string LoginHelpText => "Авторизуйтесь, чтобы открыть терминал запуска. Если аккаунта ещё нет, его можно зарегистрировать прямо здесь.";
 
@@ -1185,7 +1275,10 @@ public class MainWindowViewModel : ViewModelBase
     private bool ValidateResetPasswordInputs()
     {
         Username = NormalizeUsername(Username);
-        RecoveryCode = NormalizeRecoveryCode(RecoveryCode);
+        if (!IsForcedPasswordReset)
+        {
+            RecoveryCode = NormalizeRecoveryCode(RecoveryCode);
+        }
 
         if (IsBlank(Username))
         {
@@ -1193,15 +1286,21 @@ public class MainWindowViewModel : ViewModelBase
             return false;
         }
 
-        if (IsBlank(RecoveryCode))
+        if (!IsForcedPasswordReset && IsBlank(RecoveryCode))
         {
             SetAuthError("Введите код восстановления!", "Проверьте введённые данные");
             return false;
         }
 
-        if (RecoveryCode.Length < 16)
+        if (!IsForcedPasswordReset && RecoveryCode.Length < 16)
         {
             SetAuthError("Код восстановления должен содержать 16 символов.", "Проверьте введённые данные");
+            return false;
+        }
+
+        if (IsForcedPasswordReset && IsBlank(RecoveryCode))
+        {
+            SetAuthError("Введите одноразовый код сброса от администратора!", "Проверьте введённые данные");
             return false;
         }
 
@@ -1222,6 +1321,8 @@ public class MainWindowViewModel : ViewModelBase
         }
 
         IsResettingPassword = true;
+        IsForcedPasswordReset = false;
+        ForcedPasswordResetMessage = string.Empty;
         IsRegistering = false;
         RecoveryCode = string.Empty;
         NewPassword = string.Empty;
@@ -1238,6 +1339,8 @@ public class MainWindowViewModel : ViewModelBase
         }
 
         IsResettingPassword = false;
+        IsForcedPasswordReset = false;
+        ForcedPasswordResetMessage = string.Empty;
         RecoveryCode = string.Empty;
         NewPassword = string.Empty;
         ClearAuthError();
@@ -2063,11 +2166,21 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             Console.WriteLine("[ConfirmResetPasswordAsync] Подтверждение сброса");
-            var result = await _apiService.ResetPasswordAsync(Username, RecoveryCode, NewPassword);
+            ApiResponse<string> result;
+            if (IsForcedPasswordReset)
+            {
+                result = await _apiService.ResetPasswordByAdminAsync(Username, RecoveryCode, NewPassword);
+            }
+            else
+            {
+                result = await _apiService.ResetPasswordAsync(Username, RecoveryCode, NewPassword);
+            }
 
             if (result.IsSuccess)
             {
                 CompletePasswordReset();
+                IsForcedPasswordReset = false;
+                ForcedPasswordResetMessage = string.Empty;
                 Console.WriteLine("[ConfirmResetPasswordAsync] Пароль изменен");
                 return;
             }
@@ -2172,6 +2285,21 @@ public class MainWindowViewModel : ViewModelBase
                 await LoadServerStatusAsync();
                 await LoadCurrentSkinAsync();
                 await RefreshAdminAccessAsync();
+                return;
+            }
+
+            if (result.RequiresPasswordReset)
+            {
+                IsResettingPassword = true;
+                IsForcedPasswordReset = true;
+                IsRegistering = false;
+                RecoveryCode = string.Empty;
+                NewPassword = string.Empty;
+                ForcedPasswordResetMessage = string.IsNullOrWhiteSpace(result.NotificationMessage)
+                    ? "Ваш пароль был сброшен администратором. Задайте новый пароль, чтобы продолжить."
+                    : result.NotificationMessage;
+                SetAuthError(ForcedPasswordResetMessage, "Требуется смена пароля");
+                Console.WriteLine("[LoginAsync] Требуется принудительная смена пароля");
                 return;
             }
 
@@ -2472,6 +2600,16 @@ public class MainWindowViewModel : ViewModelBase
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     PlayTimeMinutes = result.Data.PlayTimeMinutes;
+                    if (result.Data.RequiresPasswordReset)
+                    {
+                        IsForcedPasswordReset = true;
+                        IsResettingPassword = true;
+                        IsRegistering = false;
+                        ForcedPasswordResetMessage = "Ваш пароль был сброшен администратором. Задайте новый пароль.";
+                        CurrentView = "Login";
+                        IsLoggedIn = false;
+                        StatusMessage = "Требуется смена пароля перед входом в игру";
+                    }
                 });
             }
         }
@@ -3247,6 +3385,7 @@ public class AdminUserItem : ReactiveObject
     public string Username { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public bool IsWhitelisted { get; set; }
+    public bool RequiresPasswordReset { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 
@@ -3262,6 +3401,8 @@ public class AdminUserItem : ReactiveObject
         }
     }
 
-    public string StatusText => IsBanned ? "Заблокирован" : (IsActive ? "Активен" : "Отключен");
+    public string StatusText => IsBanned
+        ? "Заблокирован"
+        : (RequiresPasswordReset ? "Требуется смена пароля" : (IsActive ? "Активен" : "Отключен"));
     public string LastLoginText => LastLoginAt?.ToLocalTime().ToString("g") ?? "никогда";
 }

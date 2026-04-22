@@ -5,6 +5,8 @@ using ApocalypseLauncher.API.Data;
 using ApocalypseLauncher.API.Models;
 using ApocalypseLauncher.API.Services;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ApocalypseLauncher.API.Controllers;
 
@@ -184,6 +186,18 @@ public class AuthController : ControllerBase
             });
         }
 
+        if (await HasPendingAdminPasswordResetAsync(user.Id))
+        {
+            await LogAction(user.Id, "LOGIN_BLOCKED_FORCE_PASSWORD_RESET", $"IP: {ip}", ip);
+            return Unauthorized(new AuthResponse
+            {
+                Success = false,
+                Message = "Пароль был сброшен администратором. Установите новый пароль.",
+                RequiresPasswordReset = true,
+                NotificationMessage = "Ваш пароль был сброшен администратором. Для входа необходимо установить новый пароль."
+            });
+        }
+
         // Сброс rate limit при успешном входе
         _rateLimitService.ResetLimit($"login:{ip}");
 
@@ -341,6 +355,9 @@ public class AuthController : ControllerBase
         // Обновление пароля
         user.PasswordHash = _passwordService.HashPassword(request.NewPassword);
         user.UpdatedAt = DateTime.UtcNow;
+        user.IsAdminPasswordResetRequired = false;
+        user.AdminResetCodeHash = null;
+        user.AdminResetCodeExpiresAt = null;
 
         // Отзыв всех активных сессий
         var sessions = await _context.LoginSessions
@@ -357,6 +374,68 @@ public class AuthController : ControllerBase
         await LogAction(user.Id, "RESET_PASSWORD_SUCCESS", $"IP: {ip}", ip);
 
         _logger.LogInformation($"Password reset successful for user: {user.Username} (ID: {user.Id})");
+
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Message = "Пароль успешно изменен. Войдите с новым паролем."
+        });
+    }
+
+    [HttpPost("reset-password-by-admin")]
+    public async Task<ActionResult<AuthResponse>> ResetPasswordByAdmin([FromBody] ResetPasswordByAdminRequest request)
+    {
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        if (string.IsNullOrWhiteSpace(request.Username) ||
+            string.IsNullOrWhiteSpace(request.ResetCode) ||
+            string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Заполните все поля" });
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower());
+        if (user == null)
+        {
+            await LogAction(null, "FORCED_RESET_INVALID_CREDENTIALS", $"Username: {request.Username}, IP: {ip}", ip);
+            return Unauthorized(new AuthResponse { Success = false, Message = "Неверное имя пользователя или код сброса" });
+        }
+
+        if (!await HasPendingAdminPasswordResetAsync(user.Id))
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Для аккаунта не требуется принудительная смена пароля" });
+        }
+
+        var providedCodeHash = HashText(request.ResetCode.Trim().ToUpperInvariant());
+        if (string.IsNullOrWhiteSpace(user.AdminResetCodeHash) ||
+            !string.Equals(user.AdminResetCodeHash, providedCodeHash, StringComparison.Ordinal) ||
+            user.AdminResetCodeExpiresAt == null ||
+            user.AdminResetCodeExpiresAt < DateTime.UtcNow)
+        {
+            await LogAction(user.Id, "FORCED_RESET_INVALID_CODE", $"IP: {ip}", ip);
+            return Unauthorized(new AuthResponse { Success = false, Message = "Неверный или просроченный код сброса" });
+        }
+
+        var (isValid, error) = _passwordService.ValidatePasswordStrength(request.NewPassword);
+        if (!isValid)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = error });
+        }
+
+        user.PasswordHash = _passwordService.HashPassword(request.NewPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+        user.IsAdminPasswordResetRequired = false;
+        user.AdminResetCodeHash = null;
+        user.AdminResetCodeExpiresAt = null;
+
+        var sessions = await _context.LoginSessions.Where(s => s.UserId == user.Id && !s.IsRevoked).ToListAsync();
+        foreach (var session in sessions)
+        {
+            session.IsRevoked = true;
+        }
+
+        await _context.SaveChangesAsync();
+        await LogAction(user.Id, "FORCED_PASSWORD_RESET_COMPLETED", $"IP: {ip}", ip);
 
         return Ok(new AuthResponse
         {
@@ -405,6 +484,72 @@ public class AuthController : ControllerBase
 
         var user = await _context.Users.FindAsync(userId);
         return user != null && user.IsActive && !user.IsBanned;
+    }
+
+    private static string HashText(string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
+    }
+
+    private static string GenerateResetCode()
+    {
+        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        Span<byte> randomBytes = stackalloc byte[8];
+        RandomNumberGenerator.Fill(randomBytes);
+        var result = new char[8];
+        for (var i = 0; i < result.Length; i++)
+        {
+            result[i] = chars[randomBytes[i] % chars.Length];
+        }
+        return new string(result);
+    }
+
+    private async Task<bool> HasPendingAdminPasswordResetAsync(int userId)
+    {
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+        {
+            return false;
+        }
+
+        if (!user.IsAdminPasswordResetRequired)
+        {
+            return false;
+        }
+
+        if (user.AdminResetCodeExpiresAt == null || user.AdminResetCodeExpiresAt < DateTime.UtcNow)
+        {
+            user.IsAdminPasswordResetRequired = false;
+            user.AdminResetCodeHash = null;
+            user.AdminResetCodeExpiresAt = null;
+            await _context.SaveChangesAsync();
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateAdminStepUp(out ActionResult? errorResult)
+    {
+        var expectedKey = _configuration["AdminKey"];
+        var providedKey = Request.Headers["X-Admin-Key"].ToString();
+
+        if (string.IsNullOrWhiteSpace(expectedKey))
+        {
+            errorResult = StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = "Admin key is not configured" });
+            return false;
+        }
+
+        if (!string.Equals(expectedKey, providedKey, StringComparison.Ordinal))
+        {
+            errorResult = Unauthorized(new { success = false, message = "Invalid admin security key" });
+            return false;
+        }
+
+        errorResult = null;
+        return true;
     }
 
     private async Task<bool> IsCurrentUserAdminAsync()
@@ -530,7 +675,8 @@ public class AuthController : ControllerBase
             Email = user.Email,
             PlayTimeMinutes = user.PlayTimeMinutes,
             CreatedAt = user.CreatedAt,
-            LastLoginAt = user.LastLoginAt
+            LastLoginAt = user.LastLoginAt,
+            RequiresPasswordReset = await HasPendingAdminPasswordResetAsync(user.Id)
         });
     }
 
@@ -541,16 +687,38 @@ public class AuthController : ControllerBase
         return Ok(new { success = true, isAdmin = await IsCurrentUserAdminAsync() });
     }
 
-    [HttpGet("admin/users")]
+    [HttpPost("admin/unlock")]
     [Authorize]
-    public async Task<ActionResult<object>> GetUsersForAdmin()
+    public async Task<ActionResult<object>> UnlockAdminAccess()
     {
         if (!await IsCurrentUserAdminAsync())
         {
             return Forbid();
         }
 
-        var users = await _context.Users
+        if (!ValidateAdminStepUp(out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        return Ok(new { success = true, isAdmin = true });
+    }
+
+    [HttpGet("admin/users")]
+    [Authorize]
+    public async Task<ActionResult<object>> GetUsersForAdmin()
+    {
+        if (!ValidateAdminStepUp(out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        if (!await IsCurrentUserAdminAsync())
+        {
+            return Forbid();
+        }
+
+        var usersRaw = await _context.Users
             .OrderBy(u => u.Id)
             .Select(u => new AdminUserResponse
             {
@@ -559,32 +727,34 @@ public class AuthController : ControllerBase
                 IsActive = u.IsActive,
                 IsBanned = u.IsBanned,
                 IsWhitelisted = u.IsWhitelisted,
+                RequiresPasswordReset = u.IsAdminPasswordResetRequired &&
+                    u.AdminResetCodeExpiresAt != null &&
+                    u.AdminResetCodeExpiresAt > DateTime.UtcNow,
                 LastLoginAt = u.LastLoginAt,
                 CreatedAt = u.CreatedAt
             })
             .ToListAsync();
 
-        return Ok(new { success = true, users });
+        return Ok(new { success = true, users = usersRaw });
     }
 
     [HttpPost("admin/reset-password")]
     [Authorize]
     public async Task<ActionResult<AuthResponse>> AdminResetPassword([FromBody] AdminResetPasswordRequest request)
     {
+        if (!ValidateAdminStepUp(out var errorResult))
+        {
+            return errorResult!;
+        }
+
         if (!await IsCurrentUserAdminAsync())
         {
             return Forbid();
         }
 
-        if (request.UserId <= 0 || string.IsNullOrWhiteSpace(request.NewPassword))
+        if (request.UserId <= 0)
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Некорректные параметры запроса" });
-        }
-
-        var (isValid, error) = _passwordService.ValidatePasswordStrength(request.NewPassword);
-        if (!isValid)
-        {
-            return BadRequest(new AuthResponse { Success = false, Message = error });
         }
 
         var targetUser = await _context.Users.FindAsync(request.UserId);
@@ -593,13 +763,15 @@ public class AuthController : ControllerBase
             return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
         }
 
-        targetUser.PasswordHash = _passwordService.HashPassword(request.NewPassword);
         targetUser.UpdatedAt = DateTime.UtcNow;
+        targetUser.IsAdminPasswordResetRequired = true;
+        var resetCode = GenerateResetCode();
+        targetUser.AdminResetCodeHash = HashText(resetCode);
+        targetUser.AdminResetCodeExpiresAt = DateTime.UtcNow.AddMinutes(30);
 
         var sessions = await _context.LoginSessions
             .Where(s => s.UserId == targetUser.Id && !s.IsRevoked)
             .ToListAsync();
-
         foreach (var session in sessions)
         {
             session.IsRevoked = true;
@@ -609,15 +781,25 @@ public class AuthController : ControllerBase
 
         var adminUserId = GetCurrentUserIdFromClaims();
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        await LogAction(adminUserId, "ADMIN_PASSWORD_RESET", $"TargetUserId: {targetUser.Id}", ip);
+        await LogAction(adminUserId, "ADMIN_PASSWORD_RESET_REQUIRED", $"TargetUserId: {targetUser.Id}; Note: {request.Note}", ip);
 
-        return Ok(new AuthResponse { Success = true, Message = "Пароль пользователя сброшен и все сессии отозваны" });
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Message = "Игроку поставлена принудительная смена пароля. Передайте ему одноразовый код сброса.",
+            NotificationMessage = $"Одноразовый код сброса для {targetUser.Username}: {resetCode} (действует 30 минут)"
+        });
     }
 
     [HttpPost("admin/set-ban")]
     [Authorize]
     public async Task<ActionResult<AuthResponse>> AdminSetBan([FromBody] AdminSetBanRequest request)
     {
+        if (!ValidateAdminStepUp(out var errorResult))
+        {
+            return errorResult!;
+        }
+
         if (!await IsCurrentUserAdminAsync())
         {
             return Forbid();
@@ -666,6 +848,11 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<ActionResult<AuthResponse>> AdminDeleteUser(int userId)
     {
+        if (!ValidateAdminStepUp(out var errorResult))
+        {
+            return errorResult!;
+        }
+
         if (!await IsCurrentUserAdminAsync())
         {
             return Forbid();
@@ -717,7 +904,7 @@ public class UpdatePlayTimeRequest
 public class AdminResetPasswordRequest
 {
     public int UserId { get; set; }
-    public string NewPassword { get; set; } = string.Empty;
+    public string? Note { get; set; }
 }
 
 public class AdminSetBanRequest
@@ -734,6 +921,7 @@ public class AdminUserResponse
     public bool IsActive { get; set; }
     public bool IsBanned { get; set; }
     public bool IsWhitelisted { get; set; }
+    public bool RequiresPasswordReset { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
@@ -746,4 +934,5 @@ public class ProfileResponse
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public bool RequiresPasswordReset { get; set; }
 }

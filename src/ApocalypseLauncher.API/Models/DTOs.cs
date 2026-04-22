@@ -19,6 +19,13 @@ public class ResetPasswordRequest
     public string NewPassword { get; set; } = string.Empty;
 }
 
+public class ResetPasswordByAdminRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string ResetCode { get; set; } = string.Empty;
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class AuthResponse
 {
     public bool Success { get; set; }
@@ -26,6 +33,8 @@ public class AuthResponse
     public string? Message { get; set; }
     public UserInfo? User { get; set; }
     public string? RecoveryCode { get; set; } // Возвращается только при регистрации
+    public bool RequiresPasswordReset { get; set; }
+    public string? NotificationMessage { get; set; }
 }
 
 public class UserInfo

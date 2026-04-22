@@ -132,11 +132,16 @@ public class ApiService
                     MinecraftUUID = result.User?.MinecraftUUID ?? "",
                     UUID = result.User?.MinecraftUUID ?? "",
                     AccessToken = result.Token,
-                    IsOffline = false
+                    IsOffline = false,
+                    RequiresPasswordReset = result.RequiresPasswordReset,
+                    NotificationMessage = result.NotificationMessage
                 });
             }
 
-            return ApiResponse<AuthResult>.Failure(GetAuthMessage(result, "Неверное имя пользователя или пароль"));
+            return ApiResponse<AuthResult>.Failure(
+                GetAuthMessage(result, "Неверное имя пользователя или пароль"),
+                result?.RequiresPasswordReset == true,
+                result?.NotificationMessage);
         }
         catch (Exception ex)
         {
@@ -214,6 +219,27 @@ public class ApiService
         }
     }
 
+    public async Task<ApiResponse<string>> ResetPasswordByAdminAsync(string username, string resetCode, string newPassword)
+    {
+        try
+        {
+            var request = new { username, resetCode, newPassword };
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/reset-password-by-admin", request);
+            var result = await ReadAuthResponseAsync(response);
+
+            if (response.IsSuccessStatusCode && result?.Success == true)
+            {
+                return ApiResponse<string>.Success(GetAuthMessage(result, "Пароль успешно изменен"));
+            }
+
+            return ApiResponse<string>.Failure(GetAuthMessage(result, "Ошибка смены пароля"));
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure(GetConnectionErrorMessage(ex));
+        }
+    }
+
     public async Task<ApiResponse<ProfileInfo>> GetProfileAsync()
     {
         try
@@ -231,7 +257,8 @@ public class ApiService
                         Email = result.Email,
                         PlayTimeMinutes = result.PlayTimeMinutes,
                         CreatedAt = result.CreatedAt,
-                        LastLoginAt = result.LastLoginAt
+                        LastLoginAt = result.LastLoginAt,
+                        RequiresPasswordReset = result.RequiresPasswordReset
                     });
                 }
             }
@@ -481,6 +508,18 @@ public class ApiService
         }
     }
 
+    private HttpRequestMessage CreateAdminRequest(HttpMethod method, string url, string adminKey, HttpContent? content = null)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.Add("X-Admin-Key", adminKey);
+        if (content != null)
+        {
+            request.Content = content;
+        }
+
+        return request;
+    }
+
     public async Task<ApiResponse<bool>> GetAdminAccessAsync()
     {
         try
@@ -500,11 +539,32 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<AdminUserInfo[]>> GetAdminUsersAsync()
+    public async Task<ApiResponse<bool>> GetAdminAccessAsync(string adminKey)
     {
         try
         {
-            var response = await _httpClient.GetAsync("/api/auth/admin/users");
+            using var request = CreateAdminRequest(HttpMethod.Post, "/api/auth/admin/unlock", adminKey);
+            var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                return ApiResponse<bool>.Success(false);
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<AdminAccessResponseDto>();
+            return ApiResponse<bool>.Success(payload?.IsAdmin == true);
+        }
+        catch
+        {
+            return ApiResponse<bool>.Success(false);
+        }
+    }
+
+    public async Task<ApiResponse<AdminUserInfo[]>> GetAdminUsersAsync(string adminKey)
+    {
+        try
+        {
+            using var request = CreateAdminRequest(HttpMethod.Get, "/api/auth/admin/users", adminKey);
+            var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
                 return ApiResponse<AdminUserInfo[]>.Failure("Нет доступа к списку пользователей");
@@ -518,6 +578,7 @@ public class ApiService
                 IsActive = u.IsActive,
                 IsBanned = u.IsBanned,
                 IsWhitelisted = u.IsWhitelisted,
+                RequiresPasswordReset = u.RequiresPasswordReset,
                 CreatedAt = u.CreatedAt,
                 LastLoginAt = u.LastLoginAt
             }).ToArray() ?? Array.Empty<AdminUserInfo>();
@@ -530,18 +591,20 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<string>> AdminResetUserPasswordAsync(int userId, string newPassword)
+    public async Task<ApiResponse<string>> AdminResetUserPasswordAsync(int userId, string? note, string adminKey)
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/api/auth/admin/reset-password", new { userId, newPassword });
+            using var payload = JsonContent.Create(new { userId, note });
+            using var request = CreateAdminRequest(HttpMethod.Post, "/api/auth/admin/reset-password", adminKey, payload);
+            var response = await _httpClient.SendAsync(request);
             var result = await ReadAuthResponseAsync(response);
             if (response.IsSuccessStatusCode && result?.Success == true)
             {
-                return ApiResponse<string>.Success(result.Message ?? "Пароль сброшен");
+                return ApiResponse<string>.Success(result.NotificationMessage ?? result.Message ?? "Принудительная смена пароля включена");
             }
 
-            return ApiResponse<string>.Failure(GetAuthMessage(result, "Не удалось сбросить пароль"));
+            return ApiResponse<string>.Failure(GetAuthMessage(result, "Не удалось включить принудительную смену пароля"));
         }
         catch (Exception ex)
         {
@@ -549,11 +612,13 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<string>> AdminSetBanAsync(int userId, bool isBanned, string? banReason = null)
+    public async Task<ApiResponse<string>> AdminSetBanAsync(int userId, bool isBanned, string adminKey, string? banReason = null)
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/api/auth/admin/set-ban", new { userId, isBanned, banReason });
+            using var payload = JsonContent.Create(new { userId, isBanned, banReason });
+            using var request = CreateAdminRequest(HttpMethod.Post, "/api/auth/admin/set-ban", adminKey, payload);
+            var response = await _httpClient.SendAsync(request);
             var result = await ReadAuthResponseAsync(response);
             if (response.IsSuccessStatusCode && result?.Success == true)
             {
@@ -568,11 +633,12 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<string>> AdminDeleteUserAsync(int userId)
+    public async Task<ApiResponse<string>> AdminDeleteUserAsync(int userId, string adminKey)
     {
         try
         {
-            var response = await _httpClient.DeleteAsync($"/api/auth/admin/users/{userId}");
+            using var request = CreateAdminRequest(HttpMethod.Delete, $"/api/auth/admin/users/{userId}", adminKey);
+            var response = await _httpClient.SendAsync(request);
             var result = await ReadAuthResponseAsync(response);
             if (response.IsSuccessStatusCode && result?.Success == true)
             {
@@ -596,6 +662,8 @@ public class AuthResponseDto
     public string? Message { get; set; }
     public UserInfoDto? User { get; set; }
     public string? RecoveryCode { get; set; } // Код восстановления
+    public bool RequiresPasswordReset { get; set; }
+    public string? NotificationMessage { get; set; }
 }
 
 public class UserInfoDto
@@ -615,6 +683,7 @@ public class ProfileResponseDto
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public bool RequiresPasswordReset { get; set; }
 }
 
 public class AdminAccessResponseDto
@@ -636,6 +705,7 @@ public class AdminUserDto
     public bool IsActive { get; set; }
     public bool IsBanned { get; set; }
     public bool IsWhitelisted { get; set; }
+    public bool RequiresPasswordReset { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }
@@ -664,9 +734,12 @@ public class ApiResponse<T>
     public bool IsSuccess { get; set; }
     public T? Data { get; set; }
     public string? ErrorMessage { get; set; }
+    public bool RequiresPasswordReset { get; set; }
+    public string? NotificationMessage { get; set; }
 
     public static ApiResponse<T> Success(T data) => new() { IsSuccess = true, Data = data };
-    public static ApiResponse<T> Failure(string error) => new() { IsSuccess = false, ErrorMessage = error };
+    public static ApiResponse<T> Failure(string error, bool requiresPasswordReset = false, string? notificationMessage = null) =>
+        new() { IsSuccess = false, ErrorMessage = error, RequiresPasswordReset = requiresPasswordReset, NotificationMessage = notificationMessage };
 }
 
 // ModpackInfo model
@@ -687,6 +760,7 @@ public class ProfileInfo
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public bool RequiresPasswordReset { get; set; }
 }
 
 public class AdminUserInfo
@@ -696,6 +770,7 @@ public class AdminUserInfo
     public bool IsActive { get; set; }
     public bool IsBanned { get; set; }
     public bool IsWhitelisted { get; set; }
+    public bool RequiresPasswordReset { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }

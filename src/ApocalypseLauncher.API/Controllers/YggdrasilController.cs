@@ -95,6 +95,11 @@ public class YggdrasilController : ControllerBase
                 }
             }
 
+            if (user.IsBanned || !user.IsActive)
+            {
+                return NotFound();
+            }
+
             var profile = await BuildProfileResponseAsync(user, uuid);
 
             _logger.LogInformation($"Profile requested for UUID {uuid} (user: {user.Username})");
@@ -141,6 +146,14 @@ public class YggdrasilController : ControllerBase
                 return Unauthorized();
             }
 
+            var accessTokenHash = _jwtService.HashToken(request.AccessToken);
+            var session = await _context.LoginSessions
+                .FirstOrDefaultAsync(s => s.UserId == user.Id && s.Token == accessTokenHash && !s.IsRevoked);
+            if (session == null || session.ExpiresAt < DateTime.UtcNow)
+            {
+                return Unauthorized();
+            }
+
             var selectedProfile = request.SelectedProfile.Replace("-", "").Trim();
             var expectedProfile = user.MinecraftUUID.Replace("-", "").Trim();
             if (!string.Equals(selectedProfile, expectedProfile, StringComparison.OrdinalIgnoreCase))
@@ -180,7 +193,7 @@ public class YggdrasilController : ControllerBase
             }
 
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
-            if (user == null)
+            if (user == null || user.IsBanned || !user.IsActive)
             {
                 return NotFound();
             }
@@ -322,7 +335,7 @@ public class YggdrasilController : ControllerBase
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
 
-            if (user == null)
+            if (user == null || user.IsBanned || !user.IsActive)
             {
                 return NotFound();
             }
@@ -366,6 +379,7 @@ public class YggdrasilController : ControllerBase
 
             var users = await _context.Users
                 .Where(u => lowerUsernames.Contains(u.Username.ToLower()))
+                .Where(u => u.IsActive && !u.IsBanned)
                 .Select(u => new
                 {
                     name = u.Username

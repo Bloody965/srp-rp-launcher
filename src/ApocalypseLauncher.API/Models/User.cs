@@ -47,4 +47,10 @@ public class User
 
     // Последнее обновление игрового времени
     public DateTime? LastPlayTimeUpdate { get; set; }
+
+    // Принудительная смена пароля по запросу администратора
+    public bool IsAdminPasswordResetRequired { get; set; } = false;
+    [MaxLength(64)]
+    public string? AdminResetCodeHash { get; set; }
+    public DateTime? AdminResetCodeExpiresAt { get; set; }
 }

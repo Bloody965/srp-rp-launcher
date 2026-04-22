@@ -13,4 +13,6 @@ public class AuthResult
     public bool IsOffline { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public string? RecoveryCode { get; set; } // Код восстановления (только при регистрации)
+    public bool RequiresPasswordReset { get; set; }
+    public string? NotificationMessage { get; set; }
 }

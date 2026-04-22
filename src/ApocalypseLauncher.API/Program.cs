@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -93,6 +94,54 @@ builder.Services.AddAuthentication(options =>
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            try
+            {
+                var userIdClaim = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrWhiteSpace(userIdClaim) || !int.TryParse(userIdClaim, out var userId))
+                {
+                    context.Fail("Invalid token claims");
+                    return;
+                }
+
+                var authHeader = context.Request.Headers.Authorization.ToString();
+                var token = authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                    ? authHeader.Substring("Bearer ".Length).Trim()
+                    : string.Empty;
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    context.Fail("Missing bearer token");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var jwt = context.HttpContext.RequestServices.GetRequiredService<JwtService>();
+                var tokenHash = jwt.HashToken(token);
+
+                var session = await db.LoginSessions
+                    .FirstOrDefaultAsync(s => s.UserId == userId && s.Token == tokenHash && !s.IsRevoked);
+                if (session == null || session.ExpiresAt < DateTime.UtcNow)
+                {
+                    context.Fail("Session is invalid or expired");
+                    return;
+                }
+
+                var user = await db.Users.FindAsync(userId);
+                if (user == null || !user.IsActive || user.IsBanned)
+                {
+                    context.Fail("Account is unavailable");
+                }
+            }
+            catch
+            {
+                context.Fail("Authorization guard failed");
+            }
+        }
+    };
 });
 
 builder.Services.AddAuthorization();
@@ -162,6 +211,27 @@ using (var scope = app.Services.CreateScope())
                               WHERE table_name='PlayerCapes' AND column_name='FileData') THEN
                     ALTER TABLE ""PlayerCapes"" ADD COLUMN ""FileData"" bytea NULL;
                     RAISE NOTICE 'Added FileData column to PlayerCapes';
+                END IF;
+            END $$;
+        ");
+
+        // Колонки для принудительной смены пароля по админ-запросу
+        db.Database.ExecuteSqlRaw(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name='Users' AND column_name='IsAdminPasswordResetRequired') THEN
+                    ALTER TABLE ""Users"" ADD COLUMN ""IsAdminPasswordResetRequired"" boolean NOT NULL DEFAULT false;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name='Users' AND column_name='AdminResetCodeHash') THEN
+                    ALTER TABLE ""Users"" ADD COLUMN ""AdminResetCodeHash"" text NULL;
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                              WHERE table_name='Users' AND column_name='AdminResetCodeExpiresAt') THEN
+                    ALTER TABLE ""Users"" ADD COLUMN ""AdminResetCodeExpiresAt"" timestamp with time zone NULL;
                 END IF;
             END $$;
         ");
