@@ -90,7 +90,6 @@ public class MainWindowViewModel : ViewModelBase
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
         LogoutCommand = ReactiveCommand.Create(Logout);
         ResetPasswordCommand = ReactiveCommand.Create(ShowResetPassword);
-        SendResetCodeCommand = ReactiveCommand.CreateFromTask(SendResetCodeAsync);
         ConfirmResetPasswordCommand = ReactiveCommand.CreateFromTask(ConfirmResetPasswordAsync);
         CancelResetCommand = ReactiveCommand.Create(CancelReset);
         EditNicknameCommand = ReactiveCommand.Create(StartEditNickname);
@@ -105,6 +104,7 @@ public class MainWindowViewModel : ViewModelBase
         ShowProfileTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Profile"; });
         RefreshLogsCommand = ReactiveCommand.CreateFromTask(RefreshLogsAsync);
         AnalyzeLogsWithAICommand = ReactiveCommand.CreateFromTask(AnalyzeLogsWithAIAsync);
+        CloseLogAnalysisCommand = ReactiveCommand.Create(CloseLogAnalysis);
 
         // Загружаем настройки RAM
         LoadRamSettings();
@@ -413,27 +413,46 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isResettingPassword, value);
     }
 
-    private bool _resetCodeSent = false;
-    public bool ResetCodeSent
+    private bool _isLoggingIn;
+    public bool IsLoggingIn
     {
-        get => _resetCodeSent;
+        get => _isLoggingIn;
         set
         {
-            this.RaiseAndSetIfChanged(ref _resetCodeSent, value);
-            this.RaisePropertyChanged(nameof(ResetPasswordDescription));
+            this.RaiseAndSetIfChanged(ref _isLoggingIn, value);
+            this.RaisePropertyChanged(nameof(IsAuthBusy));
+            this.RaisePropertyChanged(nameof(LoginButtonText));
         }
     }
 
-    public string ResetPasswordDescription => _resetCodeSent
-        ? "Код отправлен на вашу почту. Введите его ниже."
-        : "Укажите email для получения кода восстановления.";
-
-    private string _resetCode = "";
-    public string ResetCode
+    private bool _isRegisteringAccount;
+    public bool IsRegisteringAccount
     {
-        get => _resetCode;
-        set => this.RaiseAndSetIfChanged(ref _resetCode, value);
+        get => _isRegisteringAccount;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isRegisteringAccount, value);
+            this.RaisePropertyChanged(nameof(IsAuthBusy));
+            this.RaisePropertyChanged(nameof(RegisterButtonText));
+        }
     }
+
+    private bool _isResettingPasswordRequest;
+    public bool IsResettingPasswordRequest
+    {
+        get => _isResettingPasswordRequest;
+        set
+        {
+            this.RaiseAndSetIfChanged(ref _isResettingPasswordRequest, value);
+            this.RaisePropertyChanged(nameof(IsAuthBusy));
+            this.RaisePropertyChanged(nameof(ResetPasswordButtonText));
+        }
+    }
+
+    public bool IsAuthBusy => IsLoggingIn || IsRegisteringAccount || IsResettingPasswordRequest;
+    public string LoginButtonText => IsLoggingIn ? "ВХОД..." : "ВОЙТИ В УЗЕЛ";
+    public string RegisterButtonText => IsRegisteringAccount ? "СОЗДАНИЕ..." : "СОЗДАТЬ АККАУНТ";
+    public string ResetPasswordButtonText => IsResettingPasswordRequest ? "СОХРАНЕНИЕ..." : "СОХРАНИТЬ НОВЫЙ ПАРОЛЬ";
 
     private bool _hasLauncherUpdate;
     public bool HasLauncherUpdate
@@ -570,6 +589,20 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isAnalyzingLogs, value);
     }
 
+    private string _logAnalysisResult = string.Empty;
+    public string LogAnalysisResult
+    {
+        get => _logAnalysisResult;
+        set => this.RaiseAndSetIfChanged(ref _logAnalysisResult, value);
+    }
+
+    private bool _isLogAnalysisVisible;
+    public bool IsLogAnalysisVisible
+    {
+        get => _isLogAnalysisVisible;
+        set => this.RaiseAndSetIfChanged(ref _isLogAnalysisVisible, value);
+    }
+
     public ReactiveCommand<Unit, Unit> ShowHomeTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowPersonalizationTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowLogsTabCommand { get; }
@@ -585,7 +618,6 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> ToggleRegisterCommand { get; }
     public ReactiveCommand<Unit, Unit> LogoutCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetPasswordCommand { get; }
-    public ReactiveCommand<Unit, Unit> SendResetCodeCommand { get; }
     public ReactiveCommand<Unit, Unit> ConfirmResetPasswordCommand { get; }
     public ReactiveCommand<Unit, Unit> CancelResetCommand { get; }
     public ReactiveCommand<Unit, Unit> EditNicknameCommand { get; }
@@ -596,6 +628,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> DeleteSkinCommand { get; }
     public ReactiveCommand<Unit, Unit> RefreshLogsCommand { get; }
     public ReactiveCommand<Unit, Unit> AnalyzeLogsWithAICommand { get; }
+    public ReactiveCommand<Unit, Unit> CloseLogAnalysisCommand { get; }
 
     private async Task ChooseFolderAsync()
     {
@@ -629,13 +662,6 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private void ToggleRegister()
-    {
-        IsRegistering = !IsRegistering;
-        LoginErrorMessage = null; // Очищаем ошибку при переключении
-        StatusMessage = IsRegistering ? "Регистрация нового аккаунта" : "Вход в аккаунт";
-    }
-
     private void Logout()
     {
         IsLoggedIn = false;
@@ -663,330 +689,1165 @@ public class MainWindowViewModel : ViewModelBase
         Console.WriteLine("[Logout] Пользователь вышел из системы");
     }
 
+    private static bool IsBlank(string? value) => string.IsNullOrWhiteSpace(value);
+
+    private static bool IsTimeoutException(Exception ex) => ex is TaskCanceledException or TimeoutException;
+
+    private static string NormalizeUsername(string? username) => username?.Trim() ?? string.Empty;
+
+    private static string NormalizeRecoveryCode(string? recoveryCode) => recoveryCode?.Trim().ToUpperInvariant() ?? string.Empty;
+
+    private static string BuildRecoveryCodeWarning(string recoveryCode)
+    {
+        return $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n⚠️ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ НИЖЕ.\nОн нужен для сброса пароля и больше не будет показан.\nМы не отправляем его на почту.\nСкопируйте код прямо сейчас (Ctrl+C).\n\nКОД: {recoveryCode}";
+    }
+
+    private string GetConnectionErrorMessage(Exception ex)
+    {
+        return IsTimeoutException(ex)
+            ? "Сервер отвечает слишком долго. Попробуйте ещё раз."
+            : "Не удалось связаться с сервером. Проверьте интернет и попробуйте ещё раз.";
+    }
+
+    private void ClearAuthError()
+    {
+        LoginErrorMessage = null;
+    }
+
+    private void SetAuthError(string message, string statusMessage)
+    {
+        LoginErrorMessage = message;
+        StatusMessage = statusMessage;
+    }
+
+    private void ClearRecoveryCodeBanner()
+    {
+        ShowRecoveryCode = false;
+        RecoveryCodeDisplay = string.Empty;
+    }
+
+    private void ShowRecoveryCodeBanner(string recoveryCode)
+    {
+        RecoveryCodeDisplay = recoveryCode;
+        ShowRecoveryCode = true;
+    }
+
+    private void StartLoginRequest()
+    {
+        IsLoggingIn = true;
+        ClearAuthError();
+        ClearRecoveryCodeBanner();
+        StatusMessage = "Входим в аккаунт...";
+    }
+
+    private void FinishLoginRequest()
+    {
+        IsLoggingIn = false;
+    }
+
+    private void StartRegisterRequest()
+    {
+        IsRegisteringAccount = true;
+        ClearAuthError();
+        StatusMessage = "Создаём аккаунт...";
+    }
+
+    private void FinishRegisterRequest()
+    {
+        IsRegisteringAccount = false;
+    }
+
+    private void StartResetPasswordRequest()
+    {
+        IsResettingPasswordRequest = true;
+        ClearAuthError();
+        StatusMessage = "Сохраняем новый пароль...";
+    }
+
+    private void FinishResetPasswordRequest()
+    {
+        IsResettingPasswordRequest = false;
+    }
+
+    private void UpdateAuthBusyState(bool login = false, bool register = false, bool reset = false)
+    {
+        IsLoggingIn = login;
+        IsRegisteringAccount = register;
+        IsResettingPasswordRequest = reset;
+        NotifyAuthUiStateChanged();
+    }
+
+    private void ResetAuthBusyState()
+    {
+        UpdateAuthBusyState();
+    }
+
+    private void NotifyAuthUiStateChanged()
+    {
+        this.RaisePropertyChanged(nameof(IsAuthBusy));
+        this.RaisePropertyChanged(nameof(LoginButtonText));
+        this.RaisePropertyChanged(nameof(RegisterButtonText));
+        this.RaisePropertyChanged(nameof(ResetPasswordButtonText));
+        this.RaisePropertyChanged(nameof(BusyHintText));
+        this.RaisePropertyChanged(nameof(LoginHelpText));
+        this.RaisePropertyChanged(nameof(RegistrationHelpText));
+        this.RaisePropertyChanged(nameof(ResetPasswordHelpText));
+    }
+
+    public string BusyHintText => IsLoggingIn
+        ? "Выполняем вход..."
+        : IsRegisteringAccount
+            ? "Создаём аккаунт..."
+            : IsResettingPasswordRequest
+                ? "Сохраняем новый пароль..."
+                : string.Empty;
+
+    public string ResetPasswordHelpText => "Используйте имя пользователя и код восстановления, который вы получили при регистрации. Код не отправляется на почту и не показывается повторно.";
+    public string RegistrationHelpText => "После регистрации мы один раз покажем код восстановления. Сохраните его сразу — он нужен для сброса пароля.";
+    public string LoginHelpText => "Авторизуйтесь, чтобы открыть терминал запуска. Если аккаунта ещё нет, его можно зарегистрировать прямо здесь.";
+
+    private bool ValidateLoginInputs()
+    {
+        Username = NormalizeUsername(Username);
+
+        if (IsBlank(Username))
+        {
+            SetAuthError("Введите имя пользователя!", "Проверьте введённые данные");
+            return false;
+        }
+
+        if (IsBlank(Password))
+        {
+            SetAuthError("Введите пароль!", "Проверьте введённые данные");
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateRegisterInputs()
+    {
+        Username = NormalizeUsername(Username);
+
+        if (IsBlank(Username))
+        {
+            SetAuthError("Введите имя пользователя!", "Проверьте введённые данные");
+            return false;
+        }
+
+        if (IsBlank(Password))
+        {
+            SetAuthError("Введите пароль!", "Проверьте введённые данные");
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateResetPasswordInputs()
+    {
+        Username = NormalizeUsername(Username);
+        RecoveryCode = NormalizeRecoveryCode(RecoveryCode);
+
+        if (IsBlank(Username))
+        {
+            SetAuthError("Введите имя пользователя!", "Проверьте введённые данные");
+            return false;
+        }
+
+        if (IsBlank(RecoveryCode))
+        {
+            SetAuthError("Введите код восстановления!", "Проверьте введённые данные");
+            return false;
+        }
+
+        if (RecoveryCode.Length < 16)
+        {
+            SetAuthError("Код восстановления должен содержать 16 символов.", "Проверьте введённые данные");
+            return false;
+        }
+
+        if (IsBlank(NewPassword))
+        {
+            SetAuthError("Введите новый пароль!", "Проверьте введённые данные");
+            return false;
+        }
+
+        return true;
+    }
+
     private void ShowResetPassword()
     {
+        if (IsAuthBusy)
+        {
+            return;
+        }
+
         IsResettingPassword = true;
-        ResetCodeSent = false;
-        Email = "";
-        ResetCode = "";
-        NewPassword = "";
-        LoginErrorMessage = null;
-        StatusMessage = "Введите email для сброса пароля";
+        IsRegistering = false;
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+        ClearAuthError();
+        StatusMessage = "Введите имя пользователя, код восстановления и новый пароль";
         Console.WriteLine("[ShowResetPassword] Открыт экран сброса пароля");
     }
 
     private void CancelReset()
     {
+        if (IsAuthBusy)
+        {
+            return;
+        }
+
         IsResettingPassword = false;
-        ResetCodeSent = false;
-        Email = "";
-        ResetCode = "";
-        NewPassword = "";
-        LoginErrorMessage = null;
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+        ClearAuthError();
         StatusMessage = "Вход в аккаунт";
         Console.WriteLine("[CancelReset] Отмена сброса пароля");
     }
 
-    private async Task SendResetCodeAsync()
+    private void ToggleRegister()
     {
-        try
+        if (IsAuthBusy || IsResettingPassword)
         {
-            Console.WriteLine("[SendResetCodeAsync] Отправка кода");
-
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = null;
-            });
-
-            if (string.IsNullOrWhiteSpace(Email))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите email!";
-                });
-                return;
-            }
-
-            StatusMessage = "Отправка кода на почту...";
-            var result = await _apiService.RequestResetCodeAsync(Email);
-
-            if (result.IsSuccess)
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    ResetCodeSent = true;
-                    LoginErrorMessage = null;
-                    StatusMessage = "Код отправлен! Проверьте почту.";
-                });
-                Console.WriteLine("[SendResetCodeAsync] Код отправлен");
-            }
-            else
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка отправки кода";
-                    StatusMessage = "Ошибка";
-                });
-                Console.WriteLine($"[SendResetCodeAsync] Ошибка: {result.ErrorMessage}");
-            }
+            return;
         }
-        catch (Exception ex)
+
+        IsRegistering = !IsRegistering;
+        ClearAuthError();
+        StatusMessage = IsRegistering ? "Регистрация нового аккаунта" : "Вход в аккаунт";
+    }
+
+    private void PrepareForSuccessfulRegistration(string recoveryCode)
+    {
+        IsLoggedIn = false;
+        IsRegistering = false;
+        IsResettingPassword = false;
+        CurrentView = "Login";
+        Password = string.Empty;
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+        ShowRecoveryCodeBanner(recoveryCode);
+        LoginErrorMessage = BuildRecoveryCodeWarning(recoveryCode);
+        StatusMessage = "Регистрация завершена. Сохраните код восстановления и войдите.";
+    }
+
+    private void PrepareForSuccessfulLogin(AuthResult result)
+    {
+        IsLoggedIn = true;
+        IsRegistering = false;
+        IsResettingPassword = false;
+        CurrentView = "Main";
+        StatusMessage = $"Добро пожаловать, {result.Username}!";
+        Username = result.Username;
+        UserEmail = result.Email;
+        Password = string.Empty;
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+        ClearAuthError();
+        ClearRecoveryCodeBanner();
+    }
+
+    private void CompletePasswordReset()
+    {
+        IsResettingPassword = false;
+        Password = string.Empty;
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+        ClearAuthError();
+        StatusMessage = "Пароль изменен! Войдите с новым паролем.";
+    }
+
+    private void ShowRegisterError(string? message)
+    {
+        SetAuthError(string.IsNullOrWhiteSpace(message) ? "Ошибка регистрации" : message.Trim(), "Ошибка регистрации");
+    }
+
+    private void ShowLoginError(string? message)
+    {
+        SetAuthError(string.IsNullOrWhiteSpace(message) ? "Неверное имя пользователя или пароль" : message.Trim(), "Ошибка входа");
+    }
+
+    private void ShowResetPasswordError(string? message)
+    {
+        SetAuthError(string.IsNullOrWhiteSpace(message) ? "Ошибка сброса пароля" : message.Trim(), "Ошибка сброса пароля");
+    }
+
+    private void ShowConnectionError(Exception ex)
+    {
+        SetAuthError(GetConnectionErrorMessage(ex), "Ошибка подключения");
+    }
+
+    private void FinishAuthFlow()
+    {
+        FinishLoginRequest();
+        FinishRegisterRequest();
+        FinishResetPasswordRequest();
+        NotifyAuthUiStateChanged();
+    }
+
+    private void InitializeAuthUiState()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private bool IsRecoveryCodeBannerVisible() => ShowRecoveryCode && !string.IsNullOrWhiteSpace(RecoveryCodeDisplay);
+
+    private void HideRecoveryCodeBannerForManualLoginAttempt()
+    {
+        if (IsRecoveryCodeBannerVisible())
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = $"Ошибка: {ex.Message}";
-                StatusMessage = "Ошибка";
-            });
-            Console.WriteLine($"[SendResetCodeAsync] EXCEPTION: {ex.Message}");
+            ClearRecoveryCodeBanner();
         }
+    }
+
+    private void NormalizeInputsBeforeLogin()
+    {
+        Username = NormalizeUsername(Username);
+    }
+
+    private void NormalizeInputsBeforeRegister()
+    {
+        Username = NormalizeUsername(Username);
+    }
+
+    private void NormalizeInputsBeforeReset()
+    {
+        Username = NormalizeUsername(Username);
+        RecoveryCode = NormalizeRecoveryCode(RecoveryCode);
+    }
+
+    private void PrepareForLoginValidation()
+    {
+        NormalizeInputsBeforeLogin();
+    }
+
+    private void PrepareForRegisterValidation()
+    {
+        NormalizeInputsBeforeRegister();
+    }
+
+    private void PrepareForResetValidation()
+    {
+        NormalizeInputsBeforeReset();
+    }
+
+    private void MarkLoginFlowStarted()
+    {
+        UpdateAuthBusyState(login: true);
+    }
+
+    private void MarkRegisterFlowStarted()
+    {
+        UpdateAuthBusyState(register: true);
+    }
+
+    private void MarkResetFlowStarted()
+    {
+        UpdateAuthBusyState(reset: true);
+    }
+
+    private void EnterLoginBusyState()
+    {
+        MarkLoginFlowStarted();
+    }
+
+    private void EnterRegisterBusyState()
+    {
+        MarkRegisterFlowStarted();
+    }
+
+    private void EnterResetBusyState()
+    {
+        MarkResetFlowStarted();
+    }
+
+    private void ExitAllBusyStates()
+    {
+        ResetAuthBusyState();
+    }
+
+    private bool BeginLoginRequestIfPossible()
+    {
+        if (IsAuthBusy || IsResettingPassword || IsRegistering)
+        {
+            return false;
+        }
+
+        StartLoginRequest();
+        EnterLoginBusyState();
+        return true;
+    }
+
+    private bool BeginRegisterRequestIfPossible()
+    {
+        if (IsAuthBusy || IsResettingPassword || !IsRegistering)
+        {
+            return false;
+        }
+
+        StartRegisterRequest();
+        EnterRegisterBusyState();
+        return true;
+    }
+
+    private bool BeginResetRequestIfPossible()
+    {
+        if (IsAuthBusy || !IsResettingPassword)
+        {
+            return false;
+        }
+
+        StartResetPasswordRequest();
+        EnterResetBusyState();
+        return true;
+    }
+
+    private void EndCurrentAuthRequest()
+    {
+        FinishLoginRequest();
+        FinishRegisterRequest();
+        FinishResetPasswordRequest();
+        ExitAllBusyStates();
+    }
+
+    private void EnsureBusyHintState()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetStatusForIdleAuthScreen()
+    {
+        if (IsResettingPassword)
+        {
+            StatusMessage = "Введите имя пользователя, код восстановления и новый пароль";
+            return;
+        }
+
+        StatusMessage = IsRegistering ? "Регистрация нового аккаунта" : "Вход в аккаунт";
+    }
+
+    private void RefreshAuthUiAfterFlow()
+    {
+        EnsureBusyHintState();
+    }
+
+    private bool CanInteractWithAuthNavigation() => !IsAuthBusy;
+
+    private bool CanSubmitLogin() => !IsAuthBusy && !IsResettingPassword && !IsRegistering;
+
+    private bool CanSubmitRegister() => !IsAuthBusy && !IsResettingPassword && IsRegistering;
+
+    private bool CanSubmitReset() => !IsAuthBusy && IsResettingPassword;
+
+    private bool CanOpenResetScreen() => !IsAuthBusy && !IsResettingPassword;
+
+    private bool CanCloseResetScreen() => !IsAuthBusy && IsResettingPassword;
+
+    private bool CanToggleRegistrationMode() => !IsAuthBusy && !IsResettingPassword;
+
+    private void ClearResetFormFields()
+    {
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+    }
+
+    private void ResetToLoginScreenState()
+    {
+        IsResettingPassword = false;
+        ClearResetFormFields();
+        ClearAuthError();
+        StatusMessage = "Вход в аккаунт";
+    }
+
+    private void EnterResetScreenState()
+    {
+        IsResettingPassword = true;
+        IsRegistering = false;
+        ClearResetFormFields();
+        ClearAuthError();
+        StatusMessage = "Введите имя пользователя, код восстановления и новый пароль";
+    }
+
+    private void ToggleRegisterScreenState()
+    {
+        IsRegistering = !IsRegistering;
+        ClearAuthError();
+        StatusMessage = IsRegistering ? "Регистрация нового аккаунта" : "Вход в аккаунт";
+    }
+
+    private void ClearPasswordFieldAfterLoginFailure()
+    {
+        Password = string.Empty;
+    }
+
+    private void ClearPasswordFieldAfterRegisterFailure()
+    {
+        Password = string.Empty;
+    }
+
+    private void ClearNewPasswordFieldAfterResetFailure()
+    {
+        NewPassword = string.Empty;
+    }
+
+    private void PrepareForManualLoginAttempt()
+    {
+        HideRecoveryCodeBannerForManualLoginAttempt();
+    }
+
+    private void OnAuthScreenShown()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void OnAuthScreenChanged()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetRegistrationMode(bool value)
+    {
+        IsRegistering = value;
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetResetMode(bool value)
+    {
+        IsResettingPassword = value;
+        NotifyAuthUiStateChanged();
+    }
+
+    private bool HasRecoveryCode(string? recoveryCode) => !string.IsNullOrWhiteSpace(NormalizeRecoveryCode(recoveryCode));
+
+    private string GetRegisterRecoveryCodeOrEmpty(string? recoveryCode) => NormalizeRecoveryCode(recoveryCode);
+
+    private void ClearTransientAuthFieldsAfterSuccess()
+    {
+        Password = string.Empty;
+        RecoveryCode = string.Empty;
+        NewPassword = string.Empty;
+    }
+
+    private void PrepareForSuccessfulResetPassword()
+    {
+        CompletePasswordReset();
+    }
+
+    private void PrepareForAuthFailure()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void PrepareForAuthSuccess()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void PrepareForBusyStateChange()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void NotifyAuthButtonsChanged()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetAuthBusyFlags(bool isLogin = false, bool isRegister = false, bool isReset = false)
+    {
+        IsLoggingIn = isLogin;
+        IsRegisteringAccount = isRegister;
+        IsResettingPasswordRequest = isReset;
+        NotifyAuthUiStateChanged();
+    }
+
+    private void ResetAuthBusyFlags()
+    {
+        SetAuthBusyFlags();
+    }
+
+    private bool StartLoginBusyFlow()
+    {
+        if (!CanSubmitLogin())
+        {
+            return false;
+        }
+
+        StartLoginRequest();
+        SetAuthBusyFlags(isLogin: true);
+        return true;
+    }
+
+    private bool StartRegisterBusyFlow()
+    {
+        if (!CanSubmitRegister())
+        {
+            return false;
+        }
+
+        StartRegisterRequest();
+        SetAuthBusyFlags(isRegister: true);
+        return true;
+    }
+
+    private bool StartResetBusyFlow()
+    {
+        if (!CanSubmitReset())
+        {
+            return false;
+        }
+
+        StartResetPasswordRequest();
+        SetAuthBusyFlags(isReset: true);
+        return true;
+    }
+
+    private void FinishBusyFlow()
+    {
+        FinishLoginRequest();
+        FinishRegisterRequest();
+        FinishResetPasswordRequest();
+        ResetAuthBusyFlags();
+    }
+
+    private void UpdateAuthStateAfterFlow()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void PrepareForLoginSubmission()
+    {
+        PrepareForLoginValidation();
+        PrepareForManualLoginAttempt();
+    }
+
+    private void PrepareForRegisterSubmission()
+    {
+        PrepareForRegisterValidation();
+    }
+
+    private void PrepareForResetSubmission()
+    {
+        PrepareForResetValidation();
+    }
+
+    private void FinalizeAuthFlow()
+    {
+        FinishBusyFlow();
+        UpdateAuthStateAfterFlow();
+    }
+
+    private void EnsureAuthModePropertiesNotified()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void InitializeAuthScreenState()
+    {
+        EnsureAuthModePropertiesNotified();
+    }
+
+    private void UpdateStatusForCurrentAuthMode()
+    {
+        SetStatusForIdleAuthScreen();
+    }
+
+    private void ApplyPostFailureCleanup()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void ApplyPostSuccessCleanup()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void PrepareForAuthSubmission()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private bool IsAuthNavigationDisabled() => IsAuthBusy;
+
+    private bool IsLoginActionDisabled() => IsAuthBusy || IsRegistering || IsResettingPassword;
+
+    private bool IsRegisterActionDisabled() => IsAuthBusy || !IsRegistering || IsResettingPassword;
+
+    private bool IsResetActionDisabled() => IsAuthBusy || !IsResettingPassword;
+
+    private bool IsSecondaryAuthActionDisabled() => IsAuthBusy;
+
+    private void ClearBannerIfNeededForLogin()
+    {
+        ClearRecoveryCodeBanner();
+    }
+
+    private void NormalizeAuthInputFields()
+    {
+        Username = NormalizeUsername(Username);
+        RecoveryCode = NormalizeRecoveryCode(RecoveryCode);
+    }
+
+    private void PrepareForRegisterSuccess(AuthResult result)
+    {
+        var recoveryCode = NormalizeRecoveryCode(result.RecoveryCode);
+        if (string.IsNullOrWhiteSpace(recoveryCode))
+        {
+            SetAuthError("Регистрация завершена, но код восстановления не получен. Попробуйте зарегистрироваться снова или обратитесь в поддержку.", "Ошибка регистрации");
+            return;
+        }
+
+        PrepareForSuccessfulRegistration(recoveryCode);
+    }
+
+    private void PrepareForLoginSuccessResult(AuthResult result)
+    {
+        PrepareForSuccessfulLogin(result);
+    }
+
+    private void PrepareForResetSuccessResult()
+    {
+        CompletePasswordReset();
+    }
+
+    private void HandleBusyFlowStart()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void HandleBusyFlowEnd()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void EnsureSensitiveFieldsCleanAfterError(string mode)
+    {
+        switch (mode)
+        {
+            case "login":
+                Password = string.Empty;
+                break;
+            case "register":
+                Password = string.Empty;
+                break;
+            case "reset":
+                NewPassword = string.Empty;
+                break;
+        }
+    }
+
+    private void HandleConnectionFailureForMode(string mode, Exception ex)
+    {
+        ShowConnectionError(ex);
+        EnsureSensitiveFieldsCleanAfterError(mode);
+    }
+
+    private void HandleBackendFailureForMode(string mode, string? message)
+    {
+        switch (mode)
+        {
+            case "login":
+                ShowLoginError(message);
+                Password = string.Empty;
+                break;
+            case "register":
+                ShowRegisterError(message);
+                Password = string.Empty;
+                break;
+            case "reset":
+                ShowResetPasswordError(message);
+                NewPassword = string.Empty;
+                break;
+        }
+    }
+
+    private void InitializeAuthHints()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void RefreshAuthHints()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void KeepRecoveryCodeBannerVisibleUntilLogin()
+    {
+        if (!IsRecoveryCodeBannerVisible())
+        {
+            return;
+        }
+    }
+
+    private void DismissRecoveryCodeBannerOnLogin()
+    {
+        ClearRecoveryCodeBanner();
+    }
+
+    private void UpdateBusyTextBindings()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetBusyForMode(string mode)
+    {
+        switch (mode)
+        {
+            case "login":
+                SetAuthBusyFlags(isLogin: true);
+                break;
+            case "register":
+                SetAuthBusyFlags(isRegister: true);
+                break;
+            case "reset":
+                SetAuthBusyFlags(isReset: true);
+                break;
+        }
+    }
+
+    private void ResetBusyForMode()
+    {
+        ResetAuthBusyFlags();
+    }
+
+    private void ClearTransientAuthState()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void PrepareForTransitionToLogin()
+    {
+        SetResetMode(false);
+        ClearResetFormFields();
+    }
+
+    private void PrepareForTransitionToReset()
+    {
+        SetResetMode(true);
+        SetRegistrationMode(false);
+        ClearResetFormFields();
+    }
+
+    private void PrepareForTransitionToRegisterToggle()
+    {
+        SetRegistrationMode(!IsRegistering);
+    }
+
+    private void HandleAuthUiStateMutation()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void EnsureAuthUiInitialized()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetResetInstructions()
+    {
+        StatusMessage = "Введите имя пользователя, код восстановления и новый пароль";
+    }
+
+    private void SetLoginInstructions()
+    {
+        StatusMessage = "Вход в аккаунт";
+    }
+
+    private void SetRegisterInstructions()
+    {
+        StatusMessage = "Регистрация нового аккаунта";
+    }
+
+    private void PrepareForShowingResetScreen()
+    {
+        SetResetMode(true);
+        SetRegistrationMode(false);
+        ClearResetFormFields();
+        ClearAuthError();
+        SetResetInstructions();
+    }
+
+    private void PrepareForCancelResetScreen()
+    {
+        SetResetMode(false);
+        ClearResetFormFields();
+        ClearAuthError();
+        SetLoginInstructions();
+    }
+
+    private void PrepareForToggleRegisterScreen()
+    {
+        SetRegistrationMode(!IsRegistering);
+        ClearAuthError();
+        if (IsRegistering)
+        {
+            SetRegisterInstructions();
+        }
+        else
+        {
+            SetLoginInstructions();
+        }
+    }
+
+    private bool IsBusyWithAnyAuthFlow() => IsAuthBusy;
+
+    private void OnBusyAuthFlowChanged()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void InitializeAuthBusyBindings()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void SetPasswordResetSuccessState()
+    {
+        CompletePasswordReset();
+    }
+
+    private void SetRegistrationSuccessState(string recoveryCode)
+    {
+        PrepareForSuccessfulRegistration(recoveryCode);
+    }
+
+    private void SetLoginSuccessState(AuthResult result)
+    {
+        PrepareForSuccessfulLogin(result);
+    }
+
+    private void SetGenericConnectionError(Exception ex)
+    {
+        ShowConnectionError(ex);
+    }
+
+    private void ClearRecoveredStateForLoginAttempt()
+    {
+        ClearRecoveryCodeBanner();
+    }
+
+    private void SetAuthUiStateAfterCompletion()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void ResetRequestFlagsAndNotify()
+    {
+        FinishBusyFlow();
+    }
+
+    private void ApplyNormalizedFieldsForAuth()
+    {
+        NormalizeAuthInputFields();
+    }
+
+    private bool IsResetFormVisible() => IsResettingPassword;
+
+    private bool IsRegisterFormVisible() => IsRegistering;
+
+    private bool IsLoginFormVisible() => !IsResettingPassword && !IsRegistering;
+
+    private void EnsureFormVisibilityConsistency()
+    {
+        if (IsResettingPassword)
+        {
+            IsRegistering = false;
+        }
+    }
+
+    private void ApplyAuthScreenConsistency()
+    {
+        EnsureFormVisibilityConsistency();
+    }
+
+    private bool ShouldPreventAuthAction() => IsAuthBusy;
+
+    private void PrepareAuthActionExecution()
+    {
+        ApplyAuthScreenConsistency();
+        NotifyAuthUiStateChanged();
+    }
+
+    private void FinishAuthActionExecution()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void ResetTransientErrorState()
+    {
+        ClearAuthError();
+    }
+
+    private void PrepareForResettingPassword()
+    {
+        RecoveryCode = NormalizeRecoveryCode(RecoveryCode);
+    }
+
+    private void PrepareForLoginingIn()
+    {
+        Username = NormalizeUsername(Username);
+    }
+
+    private void PrepareForRegisteringAccount()
+    {
+        Username = NormalizeUsername(Username);
+    }
+
+    private void RefreshAuthBindings()
+    {
+        NotifyAuthUiStateChanged();
+    }
+
+    private void EnsureAuthScreenNotBusy()
+    {
+        NotifyAuthUiStateChanged();
     }
 
     private async Task ConfirmResetPasswordAsync()
     {
+        if (IsAuthBusy || !IsResettingPassword)
+        {
+            return;
+        }
+
+        ClearAuthError();
+        if (!ValidateResetPasswordInputs())
+        {
+            return;
+        }
+
+        StartResetPasswordRequest();
+        NotifyAuthUiStateChanged();
+
         try
         {
             Console.WriteLine("[ConfirmResetPasswordAsync] Подтверждение сброса");
-
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = null;
-            });
-
-            if (string.IsNullOrWhiteSpace(Username))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите имя пользователя!";
-                });
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(RecoveryCode))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите код восстановления!";
-                });
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(NewPassword))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите новый пароль!";
-                });
-                return;
-            }
-
-            StatusMessage = "Сброс пароля...";
             var result = await _apiService.ResetPasswordAsync(Username, RecoveryCode, NewPassword);
 
             if (result.IsSuccess)
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    IsResettingPassword = false;
-                    Username = "";
-                    RecoveryCode = "";
-                    NewPassword = "";
-                    LoginErrorMessage = null;
-                    StatusMessage = "Пароль изменен! Войдите с новым паролем.";
-                });
+                CompletePasswordReset();
                 Console.WriteLine("[ConfirmResetPasswordAsync] Пароль изменен");
+                return;
             }
-            else
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка сброса пароля";
-                    StatusMessage = "Ошибка";
-                });
-                Console.WriteLine($"[ConfirmResetPasswordAsync] Ошибка: {result.ErrorMessage}");
-            }
+
+            ShowResetPasswordError(result.ErrorMessage);
+            NewPassword = string.Empty;
+            Console.WriteLine($"[ConfirmResetPasswordAsync] Ошибка: {result.ErrorMessage}");
         }
         catch (Exception ex)
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = $"Ошибка: {ex.Message}";
-                StatusMessage = "Ошибка";
-            });
+            ShowConnectionError(ex);
+            NewPassword = string.Empty;
             Console.WriteLine($"[ConfirmResetPasswordAsync] EXCEPTION: {ex.Message}");
+        }
+        finally
+        {
+            FinishAuthFlow();
         }
     }
 
     private async Task RegisterAsync()
     {
+        if (IsAuthBusy || IsResettingPassword || !IsRegistering)
+        {
+            return;
+        }
+
+        ClearAuthError();
+        if (!ValidateRegisterInputs())
+        {
+            return;
+        }
+
+        StartRegisterRequest();
+        NotifyAuthUiStateChanged();
+
         try
         {
-            Console.WriteLine("[RegisterAsync] Начало регистрации");
-
-            // Очищаем предыдущие ошибки в UI потоке
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = null;
-            });
-
-            if (string.IsNullOrWhiteSpace(Username))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите имя пользователя!";
-                });
-                Console.WriteLine("[RegisterAsync] Ошибка: пустое имя");
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(Password))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите пароль!";
-                });
-                Console.WriteLine("[RegisterAsync] Ошибка: пустой пароль");
-                return;
-            }
-
-            StatusMessage = "Регистрация...";
             Console.WriteLine($"[RegisterAsync] Отправка запроса: {Username}");
-
             var result = await _apiService.RegisterAsync(Username, Password);
-
-            Console.WriteLine($"[RegisterAsync] Результат: Success={result.IsSuccess}, Error={result.ErrorMessage}");
 
             if (result.IsSuccess && result.Data != null)
             {
-                // ВАЖНО: Показываем recovery code пользователю
-                var recoveryCode = result.Data.RecoveryCode;
-
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                var recoveryCode = NormalizeRecoveryCode(result.Data.RecoveryCode);
+                if (string.IsNullOrWhiteSpace(recoveryCode))
                 {
-                    // НЕ входим сразу - показываем код на экране входа
-                    IsLoggedIn = false;
-                    IsRegistering = false;
-                    CurrentView = "Login";
-                    Username = "";
-                    Password = "";
+                    ShowRegisterError("Регистрация завершена, но код восстановления не получен. Обратитесь в поддержку.");
+                    return;
+                }
 
-                    // Показываем recovery code в отдельном копируемом поле
-                    RecoveryCodeDisplay = recoveryCode;
-                    ShowRecoveryCode = true;
-
-                    LoginErrorMessage = $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n⚠️ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ НИЖЕ!\nВыделите и скопируйте его (Ctrl+C).\nОн понадобится для восстановления пароля.\nКод больше не будет показан!";
-                    StatusMessage = $"Регистрация завершена. Сохраните код и войдите.";
-                });
-
-                Console.WriteLine($"[RegisterAsync] Регистрация успешна! Recovery code: {recoveryCode}");
-                Console.WriteLine($"[RegisterAsync] Пользователь должен сохранить код и войти заново");
+                PrepareForSuccessfulRegistration(recoveryCode);
+                Console.WriteLine("[RegisterAsync] Регистрация успешна");
+                return;
             }
-            else
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = result.ErrorMessage ?? "Ошибка регистрации";
-                    StatusMessage = "Ошибка регистрации";
-                });
-                Console.WriteLine($"[RegisterAsync] Ошибка: {result.ErrorMessage}");
-            }
+
+            ShowRegisterError(result.ErrorMessage);
+            Password = string.Empty;
+            Console.WriteLine($"[RegisterAsync] Ошибка: {result.ErrorMessage}");
         }
         catch (Exception ex)
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = $"Ошибка подключения к серверу";
-                StatusMessage = "Ошибка подключения";
-            });
+            ShowConnectionError(ex);
+            Password = string.Empty;
             Console.WriteLine($"[RegisterAsync] EXCEPTION: {ex.Message}");
-            Console.WriteLine($"[RegisterAsync] Stack: {ex.StackTrace}");
+        }
+        finally
+        {
+            FinishAuthFlow();
         }
     }
 
     private async Task LoginAsync()
     {
+        if (IsAuthBusy || IsResettingPassword || IsRegistering)
+        {
+            return;
+        }
+
+        ClearAuthError();
+        if (!ValidateLoginInputs())
+        {
+            return;
+        }
+
+        StartLoginRequest();
+        NotifyAuthUiStateChanged();
+
         try
         {
-            Console.WriteLine("[LoginAsync] Начало входа");
-
-            // Очищаем предыдущие ошибки и скрываем recovery code
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = null;
-                ShowRecoveryCode = false;
-                RecoveryCodeDisplay = "";
-            });
-
-            if (string.IsNullOrWhiteSpace(Username))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите имя пользователя!";
-                });
-                Console.WriteLine("[LoginAsync] Ошибка: пустое имя");
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(Password))
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = "Введите пароль!";
-                });
-                Console.WriteLine("[LoginAsync] Ошибка: пустой пароль");
-                return;
-            }
-
-            StatusMessage = "Вход...";
             Console.WriteLine($"[LoginAsync] Отправка запроса: {Username}");
-
             var result = await _apiService.LoginAsync(Username, Password);
-
-            Console.WriteLine($"[LoginAsync] Результат: Success={result.IsSuccess}, Error={result.ErrorMessage}");
 
             if (result.IsSuccess && result.Data != null)
             {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    IsLoggedIn = true;
-                    CurrentView = "Main";
-                    StatusMessage = $"Добро пожаловать, {result.Data.Username}!";
-                    Username = result.Data.Username;
-                    UserEmail = result.Data.Email;
-                    LoginErrorMessage = null;
-                });
+                PrepareForSuccessfulLogin(result.Data);
+                SaveToken(result.Data.Token ?? string.Empty, result.Data.Username, result.Data.Email);
+                Console.WriteLine("[LoginAsync] Вход успешен");
 
-                // Сохраняем токен для автоматического входа
-                SaveToken(result.Data.Token ?? "", result.Data.Username, result.Data.Email);
-
-                Console.WriteLine("[LoginAsync] Вход успешен!");
-
-                // Проверяем установку
                 CheckInstallation();
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
                 await LoadServerStatusAsync();
                 await LoadCurrentSkinAsync();
+                return;
             }
-            else
-            {
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    LoginErrorMessage = result.ErrorMessage ?? "Неверное имя пользователя или пароль";
-                    StatusMessage = "Ошибка входа";
-                });
-                Console.WriteLine($"[LoginAsync] Ошибка: {result.ErrorMessage}");
-                Console.WriteLine($"[LoginAsync] LoginErrorMessage установлен: {LoginErrorMessage}");
-            }
+
+            ShowLoginError(result.ErrorMessage);
+            Password = string.Empty;
+            Console.WriteLine($"[LoginAsync] Ошибка: {result.ErrorMessage}");
         }
         catch (Exception ex)
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                LoginErrorMessage = $"Ошибка подключения к серверу";
-                StatusMessage = "Ошибка подключения";
-            });
+            ShowConnectionError(ex);
+            Password = string.Empty;
             Console.WriteLine($"[LoginAsync] EXCEPTION: {ex.Message}");
-            Console.WriteLine($"[LoginAsync] Stack: {ex.StackTrace}");
+        }
+        finally
+        {
+            FinishAuthFlow();
         }
     }
 
@@ -1860,15 +2721,12 @@ public class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            // Отправляем логи на анализ к Claude API
             var analysisResult = await AnalyzeLogsWithClaudeAsync(GameLogs);
 
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                // Открываем отдельное окно с результатом анализа
-                var analysisWindow = new Views.LogAnalysisWindow(analysisResult);
-                analysisWindow.Show();
-
+                LogAnalysisResult = analysisResult;
+                IsLogAnalysisVisible = true;
                 LogStatus = "Анализ завершен";
                 StatusMessage = "AI анализ логов завершен";
             });
@@ -1886,6 +2744,11 @@ public class MainWindowViewModel : ViewModelBase
         {
             IsAnalyzingLogs = false;
         }
+    }
+
+    private void CloseLogAnalysis()
+    {
+        IsLogAnalysisVisible = false;
     }
 
     private async Task<string> AnalyzeLogsWithClaudeAsync(string logs)

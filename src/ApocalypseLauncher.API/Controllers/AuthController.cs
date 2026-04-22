@@ -51,7 +51,7 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse
             {
                 Success = false,
-                Message = "Слишком много попыток регистрации. Попробуйте позже."
+                Message = "Слишком много попыток регистрации. Попробуйте через 1 час."
             });
         }
 

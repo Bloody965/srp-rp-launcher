@@ -157,7 +157,9 @@
                                         <StackPanel Spacing="6">
                                             <TextBlock Text="ЛИНИЯ ПРОПУСКА" Classes="microLabel"/>
                                             <TextBlock Text="Вход в контрольный узел" Classes="formTitle"/>
-                                            <TextBlock Text="Авторизуйтесь, чтобы открыть терминал запуска. Если аккаунта ещё нет, его можно зарегистрировать прямо здесь." Classes="captionText" TextWrapping="Wrap" MaxWidth="430"/>
+                                            <TextBlock Text="{Binding LoginHelpText}" Classes="captionText" TextWrapping="Wrap" MaxWidth="430" IsVisible="{Binding !IsRegistering}"/>
+                                            <TextBlock Text="{Binding RegistrationHelpText}" Classes="captionText" TextWrapping="Wrap" MaxWidth="430" IsVisible="{Binding IsRegistering}"/>
+                                            <TextBlock Text="{Binding BusyHintText}" Classes="captionText" TextWrapping="Wrap" MaxWidth="430" Foreground="#D3924D" IsVisible="{Binding IsAuthBusy}"/>
                                         </StackPanel>
 
                                         <StackPanel Spacing="10">
@@ -191,14 +193,14 @@
                                         </Border>
 
                                         <StackPanel Spacing="12">
-                                            <Button Content="ВОЙТИ В УЗЕЛ" Command="{Binding LoginCommand}" Classes="primaryButton" Height="58" IsVisible="{Binding !IsRegistering}"/>
-                                            <Button Content="СОЗДАТЬ АККАУНТ" Command="{Binding RegisterCommand}" Classes="primaryButton" Height="58" IsVisible="{Binding IsRegistering}"/>
+                                            <Button Content="{Binding LoginButtonText}" Command="{Binding LoginCommand}" Classes="primaryButton" Height="58" IsVisible="{Binding !IsRegistering}" IsEnabled="{Binding !IsAuthBusy}"/>
+                                            <Button Content="{Binding RegisterButtonText}" Command="{Binding RegisterCommand}" Classes="primaryButton" Height="58" IsVisible="{Binding IsRegistering}" IsEnabled="{Binding !IsAuthBusy}"/>
                                         </StackPanel>
 
                                         <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
-                                            <Button Grid.Column="0" Content="РЕГИСТРАЦИЯ" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding !IsRegistering}"/>
-                                            <Button Grid.Column="0" Content="ВХОД" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding IsRegistering}"/>
-                                            <Button Grid.Column="1" Content="СБРОС ПАРОЛЯ" Command="{Binding ResetPasswordCommand}" Classes="ghostButton" Height="50"/>
+                                            <Button Grid.Column="0" Content="РЕГИСТРАЦИЯ" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding !IsRegistering}" IsEnabled="{Binding !IsAuthBusy}"/>
+                                            <Button Grid.Column="0" Content="ВХОД" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding IsRegistering}" IsEnabled="{Binding !IsAuthBusy}"/>
+                                            <Button Grid.Column="1" Content="СБРОС ПАРОЛЯ" Command="{Binding ResetPasswordCommand}" Classes="ghostButton" Height="50" IsEnabled="{Binding !IsAuthBusy}"/>
                                         </Grid>
                                     </StackPanel>
 
@@ -206,7 +208,8 @@
                                         <StackPanel Spacing="6">
                                             <TextBlock Text="ВОССТАНОВЛЕНИЕ ДОСТУПА" Classes="microLabel"/>
                                             <TextBlock Text="Сброс пароля" Classes="formTitle"/>
-                                            <TextBlock Text="Введите имя пользователя и код восстановления, который вы получили при регистрации" Classes="captionText" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding ResetPasswordHelpText}" Classes="captionText" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding BusyHintText}" Classes="captionText" TextWrapping="Wrap" Foreground="#D3924D" IsVisible="{Binding IsAuthBusy}"/>
                                         </StackPanel>
 
                                         <StackPanel Spacing="10">
@@ -228,8 +231,8 @@
                                             <TextBlock Text="{Binding LoginErrorMessage}" Foreground="#E3B39C" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center"/>
                                         </Border>
 
-                                        <Button Content="СОХРАНИТЬ НОВЫЙ ПАРОЛЬ" Command="{Binding ConfirmResetPasswordCommand}" Classes="primaryButton" Height="58"/>
-                                        <Button Content="НАЗАД КО ВХОДУ" Command="{Binding CancelResetCommand}" Classes="ghostButton" Height="48"/>
+                                        <Button Content="{Binding ResetPasswordButtonText}" Command="{Binding ConfirmResetPasswordCommand}" Classes="primaryButton" Height="58" IsEnabled="{Binding !IsAuthBusy}"/>
+                                        <Button Content="НАЗАД КО ВХОДУ" Command="{Binding CancelResetCommand}" Classes="ghostButton" Height="48" IsEnabled="{Binding !IsAuthBusy}"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -619,6 +622,27 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <Border IsVisible="{Binding IsLogAnalysisVisible}" Background="#E0080706">
+            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32" CornerRadius="18" Classes="overlayPanel" MinWidth="720" MaxWidth="980" MaxHeight="700">
+                <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="18">
+                    <TextBlock Text="AI АНАЛИЗ ЛОГОВ" Classes="overlayTitle" HorizontalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Text="Результат анализа логов внутри лаунчера" Classes="captionText" HorizontalAlignment="Center"/>
+
+                    <Border Grid.Row="2" Classes="pillCard" Padding="20" Background="#0A0A0A" BorderBrush="#333333" BorderThickness="1">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="420">
+                            <TextBlock Text="{Binding LogAnalysisResult}"
+                                       TextWrapping="Wrap"
+                                       FontSize="14"
+                                       LineHeight="22"
+                                       Foreground="#F1E7CE"/>
+                        </ScrollViewer>
+                    </Border>
+
+                    <Button Grid.Row="3" Content="ЗАКРЫТЬ" Command="{Binding CloseLogAnalysisCommand}" Classes="primaryButton" Height="48" MinWidth="180" HorizontalAlignment="Center"/>
+                </Grid>
+            </Border>
+        </Border>
 
         <Border IsVisible="{Binding IsGameRunning}" Background="#E0080706">
             <Border HorizontalAlignment="Center" VerticalAlignment="Center" Padding="42" CornerRadius="18" Classes="overlayPanel" MinWidth="420" MaxWidth="520">

@@ -23,7 +23,7 @@ public class ApiService
         _httpClient = new HttpClient(handler)
         {
             BaseAddress = new Uri(baseUrl),
-            Timeout = TimeSpan.FromMinutes(5)
+            Timeout = TimeSpan.FromSeconds(30)
         };
 
         Console.WriteLine($"[ApiService] Initialized with base URL: {baseUrl}");
@@ -36,6 +36,30 @@ public class ApiService
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
+    private static async Task<AuthResponseDto?> ReadAuthResponseAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<AuthResponseDto>();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetAuthMessage(AuthResponseDto? response, string fallbackMessage)
+    {
+        return string.IsNullOrWhiteSpace(response?.Message) ? fallbackMessage : response.Message.Trim();
+    }
+
+    private static string GetConnectionErrorMessage(Exception ex)
+    {
+        return ex is TaskCanceledException or TimeoutException
+            ? "Сервер отвечает слишком долго. Попробуйте ещё раз."
+            : "Не удалось связаться с сервером. Проверьте интернет и попробуйте ещё раз.";
+    }
+
     public async Task<ApiResponse<AuthResult>> RegisterAsync(string username, string password)
     {
         try
@@ -43,33 +67,28 @@ public class ApiService
             Console.WriteLine($"[ApiService.RegisterAsync] Starting request to {_httpClient.BaseAddress}api/auth/register");
             var request = new { username, password };
             var response = await _httpClient.PostAsJsonAsync("/api/auth/register", request);
+            var result = await ReadAuthResponseAsync(response);
 
             Console.WriteLine($"[ApiService.RegisterAsync] Response status: {response.StatusCode}");
             Console.WriteLine($"[ApiService.RegisterAsync] Response URL: {response.RequestMessage?.RequestUri}");
 
-            if (response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode && result?.Success == true && !string.IsNullOrWhiteSpace(result.Token))
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-                if (result?.Success == true && result.Token != null)
+                SetAuthToken(result.Token);
+                return ApiResponse<AuthResult>.Success(new AuthResult
                 {
-                    SetAuthToken(result.Token);
-                    return ApiResponse<AuthResult>.Success(new AuthResult
-                    {
-                        Token = result.Token,
-                        Username = result.User?.Username ?? username,
-                        Email = result.User?.Email ?? "",
-                        MinecraftUUID = result.User?.MinecraftUUID ?? "",
-                        UUID = result.User?.MinecraftUUID ?? "",
-                        AccessToken = result.Token,
-                        IsOffline = false,
-                        RecoveryCode = result.RecoveryCode // Код восстановления
-                    });
-                }
-                return ApiResponse<AuthResult>.Failure(result?.Message ?? "Ошибка регистрации");
+                    Token = result.Token,
+                    Username = result.User?.Username ?? username,
+                    Email = result.User?.Email ?? "",
+                    MinecraftUUID = result.User?.MinecraftUUID ?? "",
+                    UUID = result.User?.MinecraftUUID ?? "",
+                    AccessToken = result.Token,
+                    IsOffline = false,
+                    RecoveryCode = result.RecoveryCode
+                });
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<AuthResult>.Failure(error?.Message ?? "Ошибка регистрации");
+            return ApiResponse<AuthResult>.Failure(GetAuthMessage(result, "Ошибка регистрации"));
         }
         catch (Exception ex)
         {
@@ -79,7 +98,7 @@ public class ApiService
             {
                 Console.WriteLine($"[ApiService.RegisterAsync] Inner: {ex.InnerException.Message}");
             }
-            return ApiResponse<AuthResult>.Failure($"Ошибка подключения: {ex.Message}");
+            return ApiResponse<AuthResult>.Failure(GetConnectionErrorMessage(ex));
         }
     }
 
@@ -89,33 +108,28 @@ public class ApiService
         {
             var request = new { username, password };
             var response = await _httpClient.PostAsJsonAsync("/api/auth/login", request);
+            var result = await ReadAuthResponseAsync(response);
 
-            if (response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode && result?.Success == true && !string.IsNullOrWhiteSpace(result.Token))
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-                if (result?.Success == true && result.Token != null)
+                SetAuthToken(result.Token);
+                return ApiResponse<AuthResult>.Success(new AuthResult
                 {
-                    SetAuthToken(result.Token);
-                    return ApiResponse<AuthResult>.Success(new AuthResult
-                    {
-                        Token = result.Token,
-                        Username = result.User?.Username ?? username,
-                        Email = result.User?.Email ?? "",
-                        MinecraftUUID = result.User?.MinecraftUUID ?? "",
-                        UUID = result.User?.MinecraftUUID ?? "",
-                        AccessToken = result.Token,
-                        IsOffline = false
-                    });
-                }
-                return ApiResponse<AuthResult>.Failure(result?.Message ?? "Ошибка входа");
+                    Token = result.Token,
+                    Username = result.User?.Username ?? username,
+                    Email = result.User?.Email ?? "",
+                    MinecraftUUID = result.User?.MinecraftUUID ?? "",
+                    UUID = result.User?.MinecraftUUID ?? "",
+                    AccessToken = result.Token,
+                    IsOffline = false
+                });
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<AuthResult>.Failure(error?.Message ?? "Неверное имя пользователя или пароль");
+            return ApiResponse<AuthResult>.Failure(GetAuthMessage(result, "Неверное имя пользователя или пароль"));
         }
         catch (Exception ex)
         {
-            return ApiResponse<AuthResult>.Failure($"Ошибка подключения: {ex.Message}");
+            return ApiResponse<AuthResult>.Failure(GetConnectionErrorMessage(ex));
         }
     }
 
@@ -168,55 +182,24 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<string>> RequestResetCodeAsync(string email)
-    {
-        try
-        {
-            var request = new { email };
-            var response = await _httpClient.PostAsJsonAsync("/api/auth/request-reset-code", request);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-                if (result?.Success == true)
-                {
-                    return ApiResponse<string>.Success(result.Message ?? "Код отправлен на почту");
-                }
-                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка отправки кода");
-            }
-
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка отправки кода");
-        }
-        catch (Exception ex)
-        {
-            return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
-        }
-    }
-
     public async Task<ApiResponse<string>> ResetPasswordAsync(string username, string recoveryCode, string newPassword)
     {
         try
         {
             var request = new { username, recoveryCode, newPassword };
             var response = await _httpClient.PostAsJsonAsync("/api/auth/reset-password", request);
+            var result = await ReadAuthResponseAsync(response);
 
-            if (response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode && result?.Success == true)
             {
-                var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-                if (result?.Success == true)
-                {
-                    return ApiResponse<string>.Success(result.Message ?? "Пароль успешно изменен");
-                }
-                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка сброса пароля");
+                return ApiResponse<string>.Success(GetAuthMessage(result, "Пароль успешно изменен"));
             }
 
-            var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка сброса пароля");
+            return ApiResponse<string>.Failure(GetAuthMessage(result, "Ошибка сброса пароля"));
         }
         catch (Exception ex)
         {
-            return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
+            return ApiResponse<string>.Failure(GetConnectionErrorMessage(ex));
         }
     }
 
