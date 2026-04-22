@@ -93,6 +93,7 @@ public class MainWindowViewModel : ViewModelBase
         UpdateModpackCommand = ReactiveCommand.CreateFromTask(UpdateModpackAsync);
         UpdateLauncherCommand = ReactiveCommand.CreateFromTask(UpdateLauncherAsync);
         ToggleRegisterCommand = ReactiveCommand.Create(ToggleRegister);
+        RedeemWebHandoffCommand = ReactiveCommand.CreateFromTask(RedeemWebHandoffAsync);
         LogoutCommand = ReactiveCommand.Create(Logout);
         ResetPasswordCommand = ReactiveCommand.Create(ShowResetPassword);
         ConfirmResetPasswordCommand = ReactiveCommand.CreateFromTask(ConfirmResetPasswordAsync);
@@ -441,6 +442,13 @@ public class MainWindowViewModel : ViewModelBase
     {
         get => _password;
         set => this.RaiseAndSetIfChanged(ref _password, value);
+    }
+
+    private string _webHandoffCode = "";
+    public string WebHandoffCode
+    {
+        get => _webHandoffCode;
+        set => this.RaiseAndSetIfChanged(ref _webHandoffCode, value);
     }
 
     private string _recoveryCode = "";
@@ -812,6 +820,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> UpdateModpackCommand { get; }
     public ReactiveCommand<Unit, Unit> UpdateLauncherCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleRegisterCommand { get; }
+    public ReactiveCommand<Unit, Unit> RedeemWebHandoffCommand { get; }
     public ReactiveCommand<Unit, Unit> LogoutCommand { get; }
     public ReactiveCommand<Unit, Unit> ResetPasswordCommand { get; }
     public ReactiveCommand<Unit, Unit> ConfirmResetPasswordCommand { get; }
@@ -1233,7 +1242,7 @@ public class MainWindowViewModel : ViewModelBase
         ? "Администратор запросил смену пароля. Введите одноразовый код сброса и задайте новый пароль."
         : "Используйте имя пользователя и код восстановления, который вы получили при регистрации. Код не отправляется на почту и не показывается повторно.";
     public string RegistrationHelpText => "После регистрации мы один раз покажем код восстановления. Сохраните его сразу — он нужен для сброса пароля.";
-    public string LoginHelpText => "Авторизуйтесь, чтобы открыть терминал запуска. Если аккаунта ещё нет, его можно зарегистрировать прямо здесь.";
+    public string LoginHelpText => "Авторизуйтесь, чтобы открыть терминал запуска. Если вы уже вошли на сайте — создайте в профиле «код для лаунчера» и вставьте его ниже. Регистрация также доступна на сайте.";
 
     private bool ValidateLoginInputs()
     {
@@ -2313,6 +2322,71 @@ public class MainWindowViewModel : ViewModelBase
             ShowConnectionError(ex);
             Password = string.Empty;
             Console.WriteLine($"[LoginAsync] EXCEPTION: {ex.Message}");
+        }
+        finally
+        {
+            FinishAuthFlow();
+        }
+    }
+
+    private async Task RedeemWebHandoffAsync()
+    {
+        if (IsAuthBusy || IsResettingPassword || IsRegistering || IsLoggedIn)
+        {
+            return;
+        }
+
+        var code = (WebHandoffCode ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(code) || code.Length < 12)
+        {
+            ClearAuthError();
+            SetAuthError("Вставьте код с сайта (профиль → «Код для лаунчера»).", "Проверьте данные");
+            return;
+        }
+
+        StartLoginRequest();
+        StatusMessage = "Проверяем код с сайта...";
+        NotifyAuthUiStateChanged();
+
+        try
+        {
+            var result = await _apiService.RedeemWebHandoffAsync(code);
+
+            if (result.IsSuccess && result.Data != null)
+            {
+                PrepareForSuccessfulLogin(result.Data);
+                SaveToken(result.Data.Token ?? string.Empty, result.Data.Username, result.Data.Email, result.Data.MinecraftUUID);
+                WebHandoffCode = string.Empty;
+                StatusMessage = "Вход через сайт выполнен.";
+
+                CheckInstallation();
+                await CheckModpackVersionAsync();
+                await LoadProfileAsync();
+                await LoadServerStatusAsync();
+                await LoadCurrentSkinAsync();
+                await RefreshAdminAccessAsync();
+                return;
+            }
+
+            if (result.RequiresPasswordReset)
+            {
+                IsResettingPassword = true;
+                IsForcedPasswordReset = true;
+                IsRegistering = false;
+                RecoveryCode = string.Empty;
+                NewPassword = string.Empty;
+                ForcedPasswordResetMessage = string.IsNullOrWhiteSpace(result.NotificationMessage)
+                    ? "Ваш пароль был сброшен администратором. Задайте новый пароль, чтобы продолжить."
+                    : result.NotificationMessage;
+                SetAuthError(ForcedPasswordResetMessage, "Требуется смена пароля");
+                return;
+            }
+
+            ShowLoginError(result.ErrorMessage);
+        }
+        catch (Exception ex)
+        {
+            ShowConnectionError(ex);
         }
         finally
         {

@@ -21,6 +21,7 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly UserIdentityConsistencyService _identityConsistency;
+    private readonly WebHandoffService _webHandoffService;
 
     public AuthController(
         AppDbContext context,
@@ -29,7 +30,8 @@ public class AuthController : ControllerBase
         RateLimitService rateLimitService,
         IConfiguration configuration,
         ILogger<AuthController> logger,
-        UserIdentityConsistencyService identityConsistency)
+        UserIdentityConsistencyService identityConsistency,
+        WebHandoffService webHandoffService)
     {
         _context = context;
         _jwtService = jwtService;
@@ -38,6 +40,7 @@ public class AuthController : ControllerBase
         _configuration = configuration;
         _logger = logger;
         _identityConsistency = identityConsistency;
+        _webHandoffService = webHandoffService;
     }
 
     [HttpPost("register")]
@@ -290,6 +293,147 @@ public class AuthController : ControllerBase
         {
             Success = true,
             Message = "Токен действителен",
+            User = new UserInfo
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                MinecraftUUID = user.MinecraftUUID,
+                IsWhitelisted = user.IsWhitelisted
+            }
+        });
+    }
+
+    /// <summary>Создать одноразовый код для входа в лаунчер (нужна активная сессия сайта с JWT).</summary>
+    [HttpPost("web-handoff/create")]
+    [Authorize]
+    public async Task<ActionResult<WebHandoffCreateResponse>> CreateWebHandoff()
+    {
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var userIdClaim = GetCurrentUserIdFromClaims();
+        if (userIdClaim == null)
+        {
+            return Unauthorized(new WebHandoffCreateResponse { Success = false, Message = "Нет авторизации" });
+        }
+
+        var uid = userIdClaim.Value;
+        if (!await HasActiveSessionAsync(uid))
+        {
+            return Unauthorized(new WebHandoffCreateResponse { Success = false, Message = "Сессия недействительна или истекла" });
+        }
+
+        if (_rateLimitService.IsRateLimited($"handoff_create:{uid}", 10, TimeSpan.FromMinutes(1)))
+        {
+            return BadRequest(new WebHandoffCreateResponse
+            {
+                Success = false,
+                Message = "Слишком часто создаются коды. Подождите минуту."
+            });
+        }
+
+        if (!_webHandoffService.TryCreate(uid, out var code))
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new WebHandoffCreateResponse { Success = false, Message = "Не удалось создать код. Повторите позже." });
+        }
+
+        await LogAction(uid, "WEB_HANDOFF_CREATE", null, ip);
+        return Ok(new WebHandoffCreateResponse
+        {
+            Success = true,
+            HandoffCode = code,
+            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(2),
+            Message = "Введите код в лаунчере в течение 2 минут. Код одноразовый."
+        });
+    }
+
+    /// <summary>Обменять код с сайта на JWT (как при обычном входе).</summary>
+    [HttpPost("web-handoff/redeem")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> RedeemWebHandoff([FromBody] WebHandoffRedeemRequest request)
+    {
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+        if (_rateLimitService.IsRateLimited($"handoff_redeem:{ip}", 40, TimeSpan.FromMinutes(1)))
+        {
+            return BadRequest(new AuthResponse
+            {
+                Success = false,
+                Message = "Слишком много попыток. Подождите минуту."
+            });
+        }
+
+        var code = request?.HandoffCode?.Trim() ?? string.Empty;
+        if (code.Length < 12)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный код" });
+        }
+
+        if (!_webHandoffService.TryConsume(code, out var userId))
+        {
+            await LogAction(null, "WEB_HANDOFF_INVALID", $"IP: {ip}", ip);
+            return BadRequest(new AuthResponse
+            {
+                Success = false,
+                Message = "Код недействителен, истёк или уже использован"
+            });
+        }
+
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || !user.IsActive)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Аккаунт недоступен" });
+        }
+
+        if (user.IsBanned)
+        {
+            await LogAction(user.Id, "WEB_HANDOFF_BANNED", $"IP: {ip}", ip);
+            return Unauthorized(new AuthResponse
+            {
+                Success = false,
+                Message = $"Аккаунт заблокирован. Причина: {user.BanReason}"
+            });
+        }
+
+        _identityConsistency.RepairMinecraftUuidIfMismatch(user);
+
+        if (await HasPendingAdminPasswordResetAsync(user.Id))
+        {
+            await LogAction(user.Id, "WEB_HANDOFF_BLOCKED_FORCE_PASSWORD_RESET", $"IP: {ip}", ip);
+            return Unauthorized(new AuthResponse
+            {
+                Success = false,
+                Message = "Пароль был сброшен администратором. Установите новый пароль.",
+                RequiresPasswordReset = true,
+                NotificationMessage = "Ваш пароль был сброшен администратором. Для входа необходимо установить новый пароль."
+            });
+        }
+
+        user.LastLoginAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        var token = _jwtService.GenerateToken(user.Id, user.Username, user.Email);
+
+        var session = new LoginSession
+        {
+            UserId = user.Id,
+            Token = _jwtService.HashToken(token),
+            IpAddress = ip,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddHours(24)
+        };
+
+        _context.LoginSessions.Add(session);
+        await _context.SaveChangesAsync();
+
+        await LogAction(user.Id, "WEB_HANDOFF_REDEEM", $"IP: {ip}", ip);
+        _logger.LogInformation("Web handoff redeem for user {Username} ({UserId})", user.Username, user.Id);
+
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Token = token,
+            Message = "Вход через сайт выполнен",
             User = new UserInfo
             {
                 Id = user.Id,

@@ -151,6 +151,43 @@ public class ApiService
         }
     }
 
+    /// <summary>Вход в лаунчер одноразовым кодом, созданным на сайте после авторизации.</summary>
+    public async Task<ApiResponse<AuthResult>> RedeemWebHandoffAsync(string handoffCode)
+    {
+        try
+        {
+            var trimmed = (handoffCode ?? string.Empty).Trim();
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/web-handoff/redeem", new { handoffCode = trimmed });
+            var result = await ReadAuthResponseAsync(response);
+
+            if (response.IsSuccessStatusCode && result?.Success == true && !string.IsNullOrWhiteSpace(result.Token))
+            {
+                SetAuthToken(result.Token);
+                return ApiResponse<AuthResult>.Success(new AuthResult
+                {
+                    Token = result.Token,
+                    Username = result.User?.Username ?? string.Empty,
+                    Email = result.User?.Email ?? "",
+                    MinecraftUUID = result.User?.MinecraftUUID ?? "",
+                    UUID = result.User?.MinecraftUUID ?? "",
+                    AccessToken = result.Token,
+                    IsOffline = false,
+                    RequiresPasswordReset = result.RequiresPasswordReset,
+                    NotificationMessage = result.NotificationMessage
+                });
+            }
+
+            return ApiResponse<AuthResult>.Failure(
+                GetAuthMessage(result, "Не удалось применить код"),
+                result?.RequiresPasswordReset == true,
+                result?.NotificationMessage);
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<AuthResult>.Failure(GetConnectionErrorMessage(ex));
+        }
+    }
+
     public async Task<ApiResponse<bool>> VerifyTokenAsync()
     {
         try

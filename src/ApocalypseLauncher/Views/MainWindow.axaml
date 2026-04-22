@@ -203,6 +203,14 @@
                                             <Button Grid.Column="0" Content="ВХОД" Command="{Binding ToggleRegisterCommand}" Classes="secondaryButton" Height="50" IsVisible="{Binding IsRegistering}" IsEnabled="{Binding !IsAuthBusy}"/>
                                             <Button Grid.Column="1" Content="СБРОС ПАРОЛЯ" Command="{Binding ResetPasswordCommand}" Classes="ghostButton" Height="50" IsEnabled="{Binding !IsAuthBusy}"/>
                                         </Grid>
+
+                                        <Border Height="1" Background="#332922" Opacity="0.9" Margin="0,4,0,0" IsVisible="{Binding !IsRegistering}"/>
+                                        <StackPanel Spacing="10" IsVisible="{Binding !IsRegistering}">
+                                            <TextBlock Text="ВХОД С САЙТА" Classes="fieldLabel"/>
+                                            <TextBlock Text="Войдите на сайте в раздел «Профиль», нажмите «Код для лаунчера» и вставьте одноразовый код сюда (2 минуты)." Classes="captionText" TextWrapping="Wrap" MaxWidth="430"/>
+                                            <TextBox Text="{Binding WebHandoffCode}" Watermark="Код из профиля на сайте" Height="50" FontSize="14"/>
+                                            <Button Content="ПРИМЕНИТЬ КОД" Command="{Binding RedeemWebHandoffCommand}" Classes="secondaryButton" Height="50" IsEnabled="{Binding !IsAuthBusy}"/>
+                                        </StackPanel>
                                     </StackPanel>
 
                                     <StackPanel Spacing="22" IsVisible="{Binding IsResettingPassword}">

@@ -1,8 +1,10 @@
+using System.Security.Cryptography;
 using System.Text;
 using ApocalypseLauncher.API.Data;
 using ApocalypseLauncher.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
@@ -155,21 +157,43 @@ builder.Services.AddSingleton<YggdrasilSignatureService>();
 builder.Services.AddScoped<UserIdentityConsistencyService>();
 builder.Services.AddMemoryCache();
 
+static byte[] DeriveWebHandoffHmacKey(string secret) =>
+    SHA256.HashData(Encoding.UTF8.GetBytes(secret + "|srp-web-handoff-v1"));
+
+builder.Services.AddSingleton(sp => new WebHandoffService(
+    sp.GetRequiredService<IMemoryCache>(),
+    DeriveWebHandoffHmacKey(jwtSecret)));
+
 builder.Services.AddHttpClient();
 
 builder.Services.AddControllers();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+var corsAllowAny = string.Equals(
+        builder.Configuration["Cors:AllowAnyOrigin"],
+        "true",
+        StringComparison.OrdinalIgnoreCase)
+    || string.Equals(
+        Environment.GetEnvironmentVariable("CORS_ALLOW_ANY_ORIGIN"),
+        "true",
+        StringComparison.OrdinalIgnoreCase);
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("LauncherPolicy", policy =>
     {
-        policy.WithMethods("GET", "POST", "DELETE")
-              .AllowAnyHeader();
+        policy.WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+              .AllowAnyHeader()
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
 
         if (allowedOrigins.Length > 0)
         {
             policy.WithOrigins(allowedOrigins);
+        }
+        else
+        {
+            policy.AllowAnyOrigin();
+            Console.WriteLine("[CORS] AllowAnyOrigin (список Cors:AllowedOrigins пуст). В production задайте домены сайта.");
         }
     });
 });
@@ -186,6 +210,28 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
+
+if (!isDevelopment && !corsAllowAny && allowedOrigins.Length == 0)
+{
+    throw new InvalidOperationException(
+        "В production укажите Cors:AllowedOrigins (HTTPS-домен сайта) или временно CORS_ALLOW_ANY_ORIGIN=true / Cors:AllowAnyOrigin=true.");
+}
+
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.Append(
+        "Permissions-Policy",
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()");
+    if (!isDevelopment)
+    {
+        context.Response.Headers.Append("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+
+    await next();
+});
 
 using (var scope = app.Services.CreateScope())
 {

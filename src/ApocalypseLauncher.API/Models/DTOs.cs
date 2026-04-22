@@ -46,6 +46,19 @@ public class UserInfo
     public bool IsWhitelisted { get; set; }
 }
 
+public class WebHandoffCreateResponse
+{
+    public bool Success { get; set; }
+    public string? HandoffCode { get; set; }
+    public DateTime? ExpiresAtUtc { get; set; }
+    public string? Message { get; set; }
+}
+
+public class WebHandoffRedeemRequest
+{
+    public string HandoffCode { get; set; } = string.Empty;
+}
+
 public class ModpackInfoResponse
 {
     public string Version { get; set; } = string.Empty;
