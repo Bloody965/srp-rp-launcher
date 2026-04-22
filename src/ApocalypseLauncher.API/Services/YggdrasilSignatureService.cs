@@ -8,7 +8,14 @@ public class YggdrasilSignatureService : IDisposable
     private readonly ILogger<YggdrasilSignatureService> _logger;
     private readonly RSA _rsa;
 
+    /// <summary>SPKI/DER as raw base64 (not used by authlib metadata).</summary>
     public string PublicKeyBase64 { get; }
+
+    /// <summary>
+    /// PEM-encoded SPKI public key. authlib-injector parses metadata with
+    /// <c>KeyUtils.parseSignaturePublicKey</c>, which expects PEM (BEGIN/END PUBLIC KEY), not raw base64.
+    /// </summary>
+    public string PublicKeyPem { get; }
 
     public YggdrasilSignatureService(IConfiguration configuration, ILogger<YggdrasilSignatureService> logger)
     {
@@ -41,7 +48,12 @@ public class YggdrasilSignatureService : IDisposable
             _logger.LogWarning("Yggdrasil private key not configured, using ephemeral runtime key.");
         }
 
-        PublicKeyBase64 = Convert.ToBase64String(_rsa.ExportSubjectPublicKeyInfo());
+        var spki = _rsa.ExportSubjectPublicKeyInfo();
+        PublicKeyBase64 = Convert.ToBase64String(spki);
+        PublicKeyPem =
+            "-----BEGIN PUBLIC KEY-----\n"
+            + Convert.ToBase64String(spki, Base64FormattingOptions.InsertLineBreaks)
+            + "\n-----END PUBLIC KEY-----";
     }
 
     public string SignTextures(string texturesBase64)

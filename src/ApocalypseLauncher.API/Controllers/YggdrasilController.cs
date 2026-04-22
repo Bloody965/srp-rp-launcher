@@ -59,7 +59,8 @@ public class YggdrasilController : ControllerBase
                 }
             },
             skinDomains = new[] { "srp-rp-launcher-production.up.railway.app" },
-            signaturePublickey = _signatureService.PublicKeyBase64
+            // authlib-injector ожидает PEM (см. APIMetadata / KeyUtils.parseSignaturePublicKey), не сырой base64 SPKI
+            signaturePublickey = _signatureService.PublicKeyPem
         };
 
         return Ok(metadata);

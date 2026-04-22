@@ -6,6 +6,10 @@ namespace ApocalypseLauncher.Core.Services;
 
 public class SkinService
 {
+    private const long MaxSkinFileSizeBytes = 2 * 1024 * 1024; // 2 MB
+    private static readonly int[] ValidSkinSizes = { 64, 128, 256 };
+    private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+
     private readonly ApiService _apiService;
     private readonly string _skinsDirectory;
     private readonly string _capesDirectory;
@@ -225,10 +229,10 @@ public class SkinService
             return false;
         }
 
-        // Проверка размера файла (макс 1 MB)
-        if (fileInfo.Length > 1024 * 1024)
+        // Проверка размера файла (макс 2 MB)
+        if (fileInfo.Length > MaxSkinFileSizeBytes)
         {
-            error = "Размер файла не должен превышать 1 MB";
+            error = "Размер файла не должен превышать 2 MB";
             return false;
         }
 
@@ -238,19 +242,17 @@ public class SkinService
             return false;
         }
 
-        // Базовая проверка PNG signature
         using var stream = File.OpenRead(filePath);
-        var signature = new byte[8];
-        stream.Read(signature, 0, 8);
-
-        var pngSignature = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
-        for (int i = 0; i < 8; i++)
+        if (!TryReadPngDimensions(stream, out var width, out var height))
         {
-            if (signature[i] != pngSignature[i])
-            {
-                error = "Файл не является корректным PNG";
-                return false;
-            }
+            error = "Файл не является корректным PNG";
+            return false;
+        }
+
+        if (width != height || Array.IndexOf(ValidSkinSizes, width) < 0)
+        {
+            error = $"Размер скина должен быть 64x64, 128x128 или 256x256 (получено {width}x{height})";
+            return false;
         }
 
         return true;
@@ -261,8 +263,85 @@ public class SkinService
     /// </summary>
     public bool ValidateCapeFile(string filePath, out string? error)
     {
-        // Используем ту же валидацию что и для скина
-        return ValidateSkinFile(filePath, out error);
+        error = null;
+
+        if (!File.Exists(filePath))
+        {
+            error = "Файл не найден";
+            return false;
+        }
+
+        var fileInfo = new FileInfo(filePath);
+        if (fileInfo.Extension.ToLower() != ".png")
+        {
+            error = "Файл должен быть в формате PNG";
+            return false;
+        }
+
+        if (fileInfo.Length > MaxSkinFileSizeBytes)
+        {
+            error = "Размер файла плаща не должен превышать 2 MB";
+            return false;
+        }
+
+        using var stream = File.OpenRead(filePath);
+        if (!TryReadPngDimensions(stream, out var width, out var height))
+        {
+            error = "Файл не является корректным PNG";
+            return false;
+        }
+
+        if (width != 64 || height != 32)
+        {
+            error = $"Размер плаща должен быть 64x32 (получено {width}x{height})";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadPngDimensions(Stream stream, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+
+        if (!stream.CanRead || stream.Length < 24)
+        {
+            return false;
+        }
+
+        stream.Position = 0;
+        var signature = new byte[8];
+        if (stream.Read(signature, 0, signature.Length) != signature.Length)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < PngSignature.Length; i++)
+        {
+            if (signature[i] != PngSignature[i])
+            {
+                return false;
+            }
+        }
+
+        stream.Position = 16; // PNG IHDR width/height offsets
+        var widthBytes = new byte[4];
+        var heightBytes = new byte[4];
+        if (stream.Read(widthBytes, 0, 4) != 4 || stream.Read(heightBytes, 0, 4) != 4)
+        {
+            return false;
+        }
+
+        if (BitConverter.IsLittleEndian)
+        {
+            Array.Reverse(widthBytes);
+            Array.Reverse(heightBytes);
+        }
+
+        width = BitConverter.ToInt32(widthBytes, 0);
+        height = BitConverter.ToInt32(heightBytes, 0);
+        return width > 0 && height > 0;
     }
 
     /// <summary>

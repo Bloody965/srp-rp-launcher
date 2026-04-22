@@ -6,13 +6,11 @@ namespace ApocalypseLauncher.API.Services;
 
 public class SkinValidationService
 {
-    private const int MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB для HD скинов
-
-    // Поддержка HD скинов: 64x64, 128x128, 256x256
-    private static readonly int[] VALID_SKIN_SIZES = { 64, 128, 256 };
-
-    private const int CAPE_WIDTH = 64;
-    private const int CAPE_HEIGHT = 32;
+    private const int MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 MB для HD скинов/плащей
+    private const int MIN_SKIN_SIZE = 64;
+    private const int MAX_SKIN_SIZE = 1024;
+    private const int CAPE_BASE_WIDTH = 64;
+    private const int CAPE_BASE_HEIGHT = 32;
 
     // PNG file signature (magic bytes)
     private static readonly byte[] PNG_SIGNATURE = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
@@ -24,7 +22,7 @@ public class SkinValidationService
 
     public (bool isValid, string? error) ValidateCapeFile(Stream fileStream, long fileSize)
     {
-        return ValidateImageFile(fileStream, fileSize, CAPE_WIDTH, CAPE_HEIGHT, "плаща");
+        return ValidateImageFile(fileStream, fileSize, CAPE_BASE_WIDTH, CAPE_BASE_HEIGHT, "плаща");
     }
 
     private (bool isValid, string? error) ValidateHDSkinFile(Stream fileStream, long fileSize)
@@ -69,10 +67,10 @@ public class SkinValidationService
         var width = BitConverter.ToInt32(widthBytes, 0);
         var height = BitConverter.ToInt32(heightBytes, 0);
 
-        // Проверка что скин квадратный и допустимого размера (64x64, 128x128, 256x256)
-        if (width != height || !VALID_SKIN_SIZES.Contains(width))
+        // Поддержка HD скинов: квадрат 64..1024, размер кратен 64.
+        if (width != height || !IsValidSkinSize(width))
         {
-            return (false, $"Размер скина должен быть 64x64, 128x128 или 256x256 пикселей (получено {width}x{height})");
+            return (false, $"Размер скина должен быть квадратным и кратным 64 (от 64x64 до 1024x1024). Получено {width}x{height}");
         }
 
         // Проверка глубины цвета и типа цвета
@@ -139,9 +137,10 @@ public class SkinValidationService
         var width = BitConverter.ToInt32(widthBytes, 0);
         var height = BitConverter.ToInt32(heightBytes, 0);
 
-        if (width != expectedWidth || height != expectedHeight)
+        // Для плаща разрешаем HD-масштабы: 64x32, 128x64, 256x128, ... до 1024x512.
+        if (!IsValidCapeSize(width, height, expectedWidth, expectedHeight))
         {
-            return (false, $"Размер {fileType} должен быть {expectedWidth}x{expectedHeight} пикселей (получено {width}x{height})");
+            return (false, $"Размер {fileType} должен быть {expectedWidth}x{expectedHeight} или HD-масштаб (до 1024x512). Получено {width}x{height}");
         }
 
         // Проверка глубины цвета и типа цвета
@@ -169,5 +168,30 @@ public class SkinValidationService
     public bool IsValidSkinType(string skinType)
     {
         return skinType == "classic" || skinType == "slim";
+    }
+
+    private static bool IsValidSkinSize(int size)
+    {
+        return size >= MIN_SKIN_SIZE &&
+               size <= MAX_SKIN_SIZE &&
+               size % 64 == 0;
+    }
+
+    private static bool IsValidCapeSize(int width, int height, int expectedWidth, int expectedHeight)
+    {
+        if (width < expectedWidth || height < expectedHeight)
+        {
+            return false;
+        }
+
+        if (width > 1024 || height > 512)
+        {
+            return false;
+        }
+
+        // Must preserve base aspect/scale exactly.
+        return width % expectedWidth == 0 &&
+               height % expectedHeight == 0 &&
+               width / expectedWidth == height / expectedHeight;
     }
 }

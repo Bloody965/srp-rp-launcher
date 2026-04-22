@@ -89,8 +89,12 @@ public class ModpackUpdater
             // Скачиваем ZIP через защищенный API
             using (var httpClient = new HttpClient())
             {
-                httpClient.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", GetAuthToken());
+                var authToken = _apiService.GetCurrentAuthToken();
+                if (!string.IsNullOrWhiteSpace(authToken))
+                {
+                    httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
+                }
 
                 using (var response = await httpClient.GetAsync(modpackInfo.DownloadUrl, HttpCompletionOption.ResponseHeadersRead))
                 {
@@ -199,9 +203,4 @@ public class ModpackUpdater
         }
     }
 
-    private string GetAuthToken()
-    {
-        // Токен будет установлен в ApiService после входа
-        return "";
-    }
 }

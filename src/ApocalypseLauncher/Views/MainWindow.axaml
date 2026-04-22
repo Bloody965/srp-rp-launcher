@@ -647,7 +647,7 @@
                                                     <TextBlock Text="{Binding AdminStatusMessage}" Classes="captionText" TextWrapping="Wrap"/>
                                                 </StackPanel>
 
-                                                <StackPanel Grid.Row="1" Spacing="8">
+                                                <StackPanel Grid.Row="1" Spacing="8" IsVisible="{Binding !IsAdminPanelUnlocked}">
                                                     <TextBlock Text="Admin Security Key" Classes="captionText"/>
                                                     <TextBox Text="{Binding AdminSecurityKey}" PasswordChar="●" Watermark="Введите секретный ключ администратора"/>
                                                     <Button Command="{Binding UnlockAdminPanelCommand}" Classes="primaryButton" Height="42" IsEnabled="{Binding !IsAdminBusy}">
@@ -656,7 +656,7 @@
                                                 </StackPanel>
 
                                                 <Button Grid.Row="2" Command="{Binding RefreshAdminUsersCommand}" Classes="ghostButton" Height="42"
-                                                        IsEnabled="{Binding IsAdminPanelUnlocked}">
+                                                        IsEnabled="{Binding IsAdminPanelUnlocked}" IsVisible="{Binding IsAdminPanelUnlocked}">
                                                     <TextBlock Text="ОБНОВИТЬ СПИСОК" FontWeight="SemiBold"/>
                                                 </Button>
 
@@ -664,7 +664,8 @@
                                                          ItemsSource="{Binding AdminUsers}"
                                                          SelectedItem="{Binding SelectedAdminUser}"
                                                          Background="Transparent"
-                                                         BorderThickness="0">
+                                                         BorderThickness="0"
+                                                         IsVisible="{Binding IsAdminPanelUnlocked}">
                                                     <ListBox.ItemTemplate>
                                                         <DataTemplate>
                                                             <Border Classes="pillCard" Padding="12" Margin="0,0,0,8">
@@ -683,7 +684,7 @@
                                             </Grid>
                                         </Border>
 
-                                        <Border Grid.Column="1" Classes="pillCard" Padding="18">
+                                        <Border Grid.Column="1" Classes="pillCard" Padding="18" IsVisible="{Binding IsAdminPanelUnlocked}">
                                             <StackPanel Spacing="14">
                                                 <TextBlock Text="ОПЕРАЦИИ" Classes="microLabel"/>
                                                 <TextBlock Text="{Binding SelectedAdminUser.Username, StringFormat=Выбран: {0}}" FontWeight="Bold" FontSize="18"/>
@@ -691,7 +692,7 @@
                                                 <StackPanel Spacing="8">
                                                     <TextBlock Text="Комментарий админа (опционально)" Classes="captionText"/>
                                                     <TextBox Text="{Binding AdminNewPassword}" Watermark="Причина или комментарий для сброса"/>
-                                                    <Button Command="{Binding AdminResetPasswordCommand}" Classes="primaryButton" Height="44" IsEnabled="{Binding IsAdminPanelUnlocked}">
+                                                    <Button Command="{Binding AdminResetPasswordCommand}" Classes="primaryButton" Height="44" IsEnabled="{Binding !IsAdminBusy}">
                                                         <TextBlock Text="ЗАПРОСИТЬ СМЕНУ ПАРОЛЯ" FontWeight="SemiBold"/>
                                                     </Button>
                                                 </StackPanel>
@@ -699,12 +700,12 @@
                                                 <StackPanel Spacing="8">
                                                     <TextBlock Text="Причина бана (опционально)" Classes="captionText"/>
                                                     <TextBox Text="{Binding AdminBanReason}" Watermark="Причина блокировки"/>
-                                                    <Button Command="{Binding ToggleBanUserCommand}" Classes="secondaryButton" Height="44" IsEnabled="{Binding IsAdminPanelUnlocked}">
+                                                    <Button Command="{Binding ToggleBanUserCommand}" Classes="secondaryButton" Height="44" IsEnabled="{Binding !IsAdminBusy}">
                                                         <TextBlock Text="БАН / РАЗБАН" FontWeight="SemiBold"/>
                                                     </Button>
                                                 </StackPanel>
 
-                                                <Button Command="{Binding AdminDeleteUserCommand}" Classes="ghostButton" Height="44" IsEnabled="{Binding IsAdminPanelUnlocked}">
+                                                <Button Command="{Binding AdminDeleteUserCommand}" Classes="ghostButton" Height="44" IsEnabled="{Binding !IsAdminBusy}">
                                                     <TextBlock Text="УДАЛИТЬ АККАУНТ" FontWeight="SemiBold"/>
                                                 </Button>
 

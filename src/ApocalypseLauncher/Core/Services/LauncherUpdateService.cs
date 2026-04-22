@@ -13,20 +13,50 @@ public class LauncherUpdateService
     private const string GITHUB_REPO = "Bloody965/srp-rp-launcher";
     private const string CURRENT_VERSION = "1.0.0";
     private readonly HttpClient _httpClient;
+    private readonly string? _apiBaseUrl;
 
     public event EventHandler<string>? StatusChanged;
     public event EventHandler<int>? ProgressChanged;
 
-    public LauncherUpdateService()
+    public LauncherUpdateService(string? apiBaseUrl = null)
     {
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "SRP-RP-Launcher");
+        _apiBaseUrl = string.IsNullOrWhiteSpace(apiBaseUrl) ? null : apiBaseUrl.TrimEnd('/');
     }
 
     public async Task<(bool hasUpdate, string latestVersion, string downloadUrl)> CheckForUpdatesAsync()
     {
         try
         {
+            if (!string.IsNullOrWhiteSpace(_apiBaseUrl))
+            {
+                var apiUrl = $"{_apiBaseUrl}/api/launcher/version";
+                var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+
+                // Reuse existing launcher auth token if present.
+                var sessionToken = TryReadSessionToken();
+                if (!string.IsNullOrWhiteSpace(sessionToken))
+                {
+                    request.Headers.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", sessionToken);
+                }
+
+                using var apiResponse = await _httpClient.SendAsync(request);
+                if (apiResponse.IsSuccessStatusCode)
+                {
+                    var payload = await apiResponse.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(payload);
+                    var latestVersionFromApi = doc.RootElement.GetProperty("version").GetString() ?? CURRENT_VERSION;
+                    var downloadUrlFromApi = doc.RootElement.GetProperty("downloadUrl").GetString() ?? string.Empty;
+                    if (!string.IsNullOrWhiteSpace(downloadUrlFromApi))
+                    {
+                        var hasUpdateFromApi = CompareVersions(CURRENT_VERSION, latestVersionFromApi) < 0;
+                        return (hasUpdateFromApi, latestVersionFromApi, downloadUrlFromApi);
+                    }
+                }
+            }
+
             var url = $"https://api.github.com/repos/{GITHUB_REPO}/releases/latest";
             var response = await _httpClient.GetStringAsync(url);
             var release = JsonDocument.Parse(response);
@@ -176,5 +206,37 @@ del ""%~f0""
         }
 
         return 0;
+    }
+
+    private static string TryReadSessionToken()
+    {
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var tokenFile = Path.Combine(appData, "SRP-RP-Launcher", "session.dat");
+            if (!File.Exists(tokenFile))
+            {
+                return string.Empty;
+            }
+
+            var stored = File.ReadAllText(tokenFile);
+            if (stored.StartsWith("enc:", StringComparison.Ordinal) && OperatingSystem.IsWindows())
+            {
+                var payload = stored.Substring(4);
+                var protectedBytes = Convert.FromBase64String(payload);
+                var bytes = System.Security.Cryptography.ProtectedData.Unprotect(
+                    protectedBytes,
+                    null,
+                    System.Security.Cryptography.DataProtectionScope.CurrentUser);
+                stored = System.Text.Encoding.UTF8.GetString(bytes);
+            }
+
+            var parts = stored.Split('|');
+            return parts.Length >= 1 ? parts[0] : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 }

@@ -47,6 +47,8 @@ public class ApiService
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
     }
 
+    public string? GetCurrentAuthToken() => _authToken;
+
     private static async Task<AuthResponseDto?> ReadAuthResponseAsync(HttpResponseMessage response)
     {
         try

@@ -16,6 +16,7 @@ namespace ApocalypseLauncher.ViewModels;
 
 public class MainWindowViewModel : ViewModelBase
 {
+    private const string ApiBaseUrl = "https://srp-rp-launcher-production.up.railway.app";
     private readonly AuthService _authService;
     private MinecraftInstaller _installer;
     private readonly GameLauncher _gameLauncher;
@@ -37,9 +38,9 @@ public class MainWindowViewModel : ViewModelBase
         _authService = new AuthService();
         _installer = new MinecraftInstaller(_minecraftDirectory);
         _gameLauncher = new GameLauncher();
-        _apiService = new ApiService("https://srp-rp-launcher-production.up.railway.app");
+        _apiService = new ApiService(ApiBaseUrl);
         _modpackUpdater = new ModpackUpdater(_minecraftDirectory, _apiService);
-        _updateService = new LauncherUpdateService();
+        _updateService = new LauncherUpdateService(ApiBaseUrl);
         _skinService = new SkinService(_apiService, _minecraftDirectory);
         _httpClient = new HttpClient();
 
@@ -2969,12 +2970,12 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            SkinStatus = "Выберите PNG файл скина 64x64 пикселей";
+            SkinStatus = "Выберите PNG файл скина 64x64 / 128x128 / 256x256";
 
             // Открываем диалог выбора файла
             var dialog = new Avalonia.Platform.Storage.FilePickerOpenOptions
             {
-                Title = "Выберите файл скина (PNG 64x64)",
+                Title = "Выберите файл скина (PNG 64x64 / 128x128 / 256x256)",
                 AllowMultiple = false,
                 FileTypeFilter = new[]
                 {
