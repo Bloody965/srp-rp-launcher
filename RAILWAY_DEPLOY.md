@@ -33,6 +33,7 @@ API сам читает `DATABASE_URL` из окружения (см. `Program.c
 | **`Jwt__SecretKey`** | Секрет подписи JWT и handoff сайт→лаунчер. Длинная случайная строка (лучше 48+ байт в base64). На Windows: `pwsh scripts/New-JwtSecret.ps1` |
 | **`Cors__AllowedOrigins__0`** | Полный origin сайта, например `https://ваш-ник.github.io`. Без слэша в конце. |
 | **`SITE_PUBLIC_ORIGIN`** | Альтернатива одной строкой — тот же HTTPS-origin сайта; API добавит его в CORS (см. `CorsConfiguration.cs`). |
+| *(авто)* | Если задан **непустой** список `Cors:AllowedOrigins`, API всё равно разрешает HTTPS с **`*.workers.dev`**, **`*.pages.dev`**, **`*.github.io`** (Cloudflare / GitHub Pages), чтобы не ломать вход из‑за опечатки в Variables. |
 | **`DATABASE_URL`** | Из Postgres (reference). |
 
 В **Production** без **`Jwt__SecretKey`** (или с плейсхолдером из примера) приложение **не стартует**.
