@@ -20,6 +20,7 @@ public class AuthController : ControllerBase
     private readonly RateLimitService _rateLimitService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
+    private readonly UserIdentityConsistencyService _identityConsistency;
 
     public AuthController(
         AppDbContext context,
@@ -27,7 +28,8 @@ public class AuthController : ControllerBase
         PasswordService passwordService,
         RateLimitService rateLimitService,
         IConfiguration configuration,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        UserIdentityConsistencyService identityConsistency)
     {
         _context = context;
         _jwtService = jwtService;
@@ -35,6 +37,7 @@ public class AuthController : ControllerBase
         _rateLimitService = rateLimitService;
         _configuration = configuration;
         _logger = logger;
+        _identityConsistency = identityConsistency;
     }
 
     [HttpPost("register")]
@@ -186,14 +189,7 @@ public class AuthController : ControllerBase
             });
         }
 
-        // Держим UUID синхронизированным с текущим ником.
-        // Иначе в одиночной игре/на сервере profile/{uuid} может уходить в 404 и скин не загрузится.
-        var expectedMinecraftUuid = _passwordService.GenerateMinecraftUUID(user.Username);
-        if (!string.Equals(user.MinecraftUUID, expectedMinecraftUuid, StringComparison.OrdinalIgnoreCase))
-        {
-            user.MinecraftUUID = expectedMinecraftUuid;
-            user.UpdatedAt = DateTime.UtcNow;
-        }
+        _identityConsistency.RepairMinecraftUuidIfMismatch(user);
 
         if (await HasPendingAdminPasswordResetAsync(user.Id))
         {
@@ -287,6 +283,8 @@ public class AuthController : ControllerBase
         {
             return Unauthorized(new AuthResponse { Success = false, Message = "Аккаунт недоступен" });
         }
+
+        await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
 
         return Ok(new AuthResponse
         {
@@ -616,7 +614,7 @@ public class AuthController : ControllerBase
         await LogAction(userId.Value, "USERNAME_CHANGED", $"Old: {user.Username}, New: {request.NewUsername}", ip);
 
         user.Username = request.NewUsername;
-        user.MinecraftUUID = _passwordService.GenerateMinecraftUUID(request.NewUsername);
+        _identityConsistency.RepairMinecraftUuidIfMismatch(user);
         user.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
@@ -677,6 +675,8 @@ public class AuthController : ControllerBase
         {
             return NotFound(new { success = false, message = "Пользователь не найден" });
         }
+
+        await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
 
         return Ok(new ProfileResponse
         {

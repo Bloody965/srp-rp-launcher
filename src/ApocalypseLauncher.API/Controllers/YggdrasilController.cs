@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Security.Claims;
 using ApocalypseLauncher.API.Services;
 using Microsoft.Extensions.Caching.Memory;
-using System.Security.Cryptography;
 using System.Text;
 using System.Collections.Generic;
 
@@ -22,6 +21,7 @@ public class YggdrasilController : ControllerBase
     private readonly JwtService _jwtService;
     private readonly IMemoryCache _cache;
     private readonly YggdrasilSignatureService _signatureService;
+    private readonly UserIdentityConsistencyService _identityConsistency;
 
     private static readonly TimeSpan JoinSessionTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan UuidLookupTtl = TimeSpan.FromHours(24);
@@ -33,7 +33,8 @@ public class YggdrasilController : ControllerBase
         IHttpContextAccessor httpContextAccessor,
         JwtService jwtService,
         IMemoryCache cache,
-        YggdrasilSignatureService signatureService)
+        YggdrasilSignatureService signatureService,
+        UserIdentityConsistencyService identityConsistency)
     {
         _context = context;
         _logger = logger;
@@ -42,6 +43,7 @@ public class YggdrasilController : ControllerBase
         _jwtService = jwtService;
         _cache = cache;
         _signatureService = signatureService;
+        _identityConsistency = identityConsistency;
     }
 
     /// <summary>
@@ -174,6 +176,8 @@ public class YggdrasilController : ControllerBase
                 return NotFound();
             }
 
+            await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
+
             var profile = await BuildProfileResponseAsync(user, uuid);
 
             _logger.LogInformation($"Profile requested for UUID {uuid} (user: {user.Username})");
@@ -219,6 +223,8 @@ public class YggdrasilController : ControllerBase
             {
                 return Unauthorized();
             }
+
+            await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
 
             var accessTokenHash = _jwtService.HashToken(request.AccessToken);
             var session = await _context.LoginSessions
@@ -272,13 +278,23 @@ public class YggdrasilController : ControllerBase
                 return NotFound();
             }
 
-            // Extra safety: ensure cached UUID matches DB user.
-            if (!string.Equals(user.MinecraftUUID.Replace("-", ""), userUuid.Replace("-", ""), StringComparison.OrdinalIgnoreCase))
+            await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
+
+            var dbUuidNoDash = user.MinecraftUUID.Replace("-", "", StringComparison.Ordinal);
+            var cacheUuidNoDash = userUuid!.Replace("-", "", StringComparison.Ordinal);
+            if (!string.Equals(dbUuidNoDash, cacheUuidNoDash, StringComparison.OrdinalIgnoreCase))
             {
-                return NotFound();
+                // Кэш join мог остаться со старым UUID до авто-исправления в БД — не рвём сессию, доверяем БД.
+                _logger.LogWarning(
+                    "hasJoined: UUID в кэше не совпал с БД для {Username}, используем UUID из БД.",
+                    username);
+                _cache.Set(cacheKey, user.MinecraftUUID, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = JoinSessionTtl
+                });
             }
 
-            var profile = await BuildProfileResponseAsync(user, userUuid.Replace("-", ""));
+            var profile = await BuildProfileResponseAsync(user, dbUuidNoDash);
             return Ok(profile);
         }
         catch (Exception ex)
@@ -293,38 +309,6 @@ public class YggdrasilController : ControllerBase
 
     private static string BuildUuidCacheKey(string uuidNoDashes)
         => $"uuidmap:{uuidNoDashes.Trim().ToLowerInvariant()}";
-
-    private static string GenerateOfflineUuid(string username)
-    {
-        // Vanilla offline UUID algorithm: nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes("UTF-8"))
-        var input = $"OfflinePlayer:{username}";
-        using var md5 = MD5.Create();
-        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
-        hash[6] = (byte)((hash[6] & 0x0F) | 0x30);
-        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
-        return FormatUuidJavaStyle(hash);
-    }
-
-    private static string FormatUuidJavaStyle(byte[] bytes)
-    {
-        // Java UUID uses network byte order; .NET Guid(byte[]) reorders bytes.
-        return string.Create(36, bytes, static (span, src) =>
-        {
-            var hex = "0123456789abcdef";
-            var j = 0;
-            for (var i = 0; i < 16; i++)
-            {
-                if (i == 4 || i == 6 || i == 8 || i == 10)
-                {
-                    span[j++] = '-';
-                }
-
-                var b = src[i];
-                span[j++] = hex[b >> 4];
-                span[j++] = hex[b & 0x0F];
-            }
-        });
-    }
 
     private async Task<object> BuildProfileResponseAsync(Models.User user, string? profileIdOverride = null)
     {
@@ -416,11 +400,13 @@ public class YggdrasilController : ControllerBase
                 return NotFound();
             }
 
+            await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
+
             // Offline-mode compatibility:
             // Return the offline UUID for the requested username and cache uuid->username,
             // so /profile/{uuid} can resolve and return textures.
-            var offlineUuid = GenerateOfflineUuid(username).Replace("-", "");
-            _cache.Set(BuildUuidCacheKey(offlineUuid), username, new MemoryCacheEntryOptions
+            var offlineUuid = _identityConsistency.OfflineUuidNoDashesForUsername(user.Username);
+            _cache.Set(BuildUuidCacheKey(offlineUuid), user.Username, new MemoryCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = UuidLookupTtl
             });
@@ -456,23 +442,20 @@ public class YggdrasilController : ControllerBase
             var users = await _context.Users
                 .Where(u => lowerUsernames.Contains(u.Username.ToLower()))
                 .Where(u => u.IsActive && !u.IsBanned)
-                .Select(u => new
-                {
-                    name = u.Username
-                })
                 .ToListAsync();
 
             var result = new List<object>(users.Count);
-            foreach (var u in users)
+            foreach (var user in users)
             {
-                var requested = usernames.FirstOrDefault(x => string.Equals(x, u.name, StringComparison.OrdinalIgnoreCase)) ?? u.name;
-                var offlineUuid = GenerateOfflineUuid(requested).Replace("-", "");
-                _cache.Set(BuildUuidCacheKey(offlineUuid), requested, new MemoryCacheEntryOptions
+                await _identityConsistency.EnsureMinecraftUuidPersistedAsync(user);
+
+                var offlineUuid = _identityConsistency.OfflineUuidNoDashesForUsername(user.Username);
+                _cache.Set(BuildUuidCacheKey(offlineUuid), user.Username, new MemoryCacheEntryOptions
                 {
                     AbsoluteExpirationRelativeToNow = UuidLookupTtl
                 });
 
-                result.Add(new { id = offlineUuid, name = u.name });
+                result.Add(new { id = offlineUuid, name = user.Username });
             }
 
             return Ok(result);

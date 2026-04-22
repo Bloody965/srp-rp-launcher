@@ -152,6 +152,7 @@ builder.Services.AddSingleton<RateLimitService>();
 builder.Services.AddSingleton<MinecraftServerService>();
 builder.Services.AddSingleton<SkinValidationService>();
 builder.Services.AddSingleton<YggdrasilSignatureService>();
+builder.Services.AddScoped<UserIdentityConsistencyService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddHttpClient();
