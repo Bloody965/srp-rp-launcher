@@ -100,6 +100,12 @@ builder.Services.AddAuthentication(options =>
 
     options.Events = new JwtBearerEvents
     {
+        OnMessageReceived = context =>
+        {
+            if (string.Equals(context.Request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
+                context.NoResult();
+            return Task.CompletedTask;
+        },
         OnTokenValidated = async context =>
         {
             try
@@ -192,50 +198,8 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
 
-        // SetIsOriginAllowed вместо только WithOrigins: так preflight получает ACAO даже если
-        // в Variables опечатка в Cors__AllowedOrigins__0, плюс доверенные HTTPS-хостинги статики.
         policy.SetIsOriginAllowed(origin =>
-        {
-            if (string.IsNullOrWhiteSpace(origin))
-                return false;
-            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
-                return false;
-
-            if (corsAllowAny)
-                return true;
-
-            var normalized = $"{uri.Scheme}://{uri.Host}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}";
-            foreach (var o in allowedOrigins)
-            {
-                if (string.Equals(normalized, o, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            if (isDevelopment)
-                return true;
-
-            if (allowedOrigins.Length == 0)
-                return true;
-
-            if (uri.Scheme == Uri.UriSchemeHttps)
-            {
-                var h = uri.IdnHost;
-                if (h.EndsWith(".workers.dev", StringComparison.OrdinalIgnoreCase))
-                    return true;
-                if (h.EndsWith(".pages.dev", StringComparison.OrdinalIgnoreCase))
-                    return true;
-                if (h.Equals("github.io", StringComparison.OrdinalIgnoreCase)
-                    || h.EndsWith(".github.io", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            if (uri.Scheme == Uri.UriSchemeHttp
-                && (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase)))
-                return true;
-
-            return false;
-        });
+            CorsConfiguration.IsOriginAllowed(origin, allowedOrigins, corsAllowAny, isDevelopment));
     });
 });
 
@@ -338,6 +302,39 @@ if (!isDevelopment)
 {
     app.UseHttpsRedirection();
 }
+
+// Явный preflight для /api/* до остального конвейера — устраняет «нет ACAO» при OPTIONS (JWT/порядок middleware).
+app.Use(async (ctx, next) =>
+{
+    if (!HttpMethods.IsOptions(ctx.Request.Method))
+    {
+        await next();
+        return;
+    }
+
+    var path = ctx.Request.Path.Value ?? "";
+    if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
+    var origin = ctx.Request.Headers.Origin.ToString();
+    if (!string.IsNullOrWhiteSpace(origin)
+        && CorsConfiguration.IsOriginAllowed(origin, allowedOrigins, corsAllowAny, isDevelopment))
+    {
+        ctx.Response.Headers.Append("Access-Control-Allow-Origin", origin);
+        ctx.Response.Headers.Append("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        var acrh = ctx.Request.Headers.AccessControlRequestHeaders.ToString();
+        if (!string.IsNullOrWhiteSpace(acrh))
+            ctx.Response.Headers.Append("Access-Control-Allow-Headers", acrh);
+        else
+            ctx.Response.Headers.Append("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept");
+        ctx.Response.Headers.Append("Access-Control-Max-Age", "600");
+    }
+
+    ctx.Response.StatusCode = 204;
+});
 
 app.UseRouting();
 app.UseCors("LauncherPolicy");
