@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Security.Claims;
 using ApocalypseLauncher.API.Services;
 using Microsoft.Extensions.Caching.Memory;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ApocalypseLauncher.API.Controllers;
 
@@ -19,6 +21,7 @@ public class YggdrasilController : ControllerBase
     private readonly IMemoryCache _cache;
 
     private static readonly TimeSpan JoinSessionTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan UuidLookupTtl = TimeSpan.FromHours(24);
 
     public YggdrasilController(
         AppDbContext context,
@@ -73,7 +76,20 @@ public class YggdrasilController : ControllerBase
 
             if (user == null)
             {
-                return NotFound();
+                // Offline-mode fallback:
+                // UUID->Username is not reversible, so we cache uuid->username when the game calls
+                // /api/profiles/minecraft/{username}. This allows skins to work in offline servers
+                // even if DB UUID differs (e.g. due to nickname casing).
+                var uuidCacheKey = BuildUuidCacheKey(uuid);
+                if (_cache.TryGetValue(uuidCacheKey, out string? cachedUsername) && !string.IsNullOrWhiteSpace(cachedUsername))
+                {
+                    user = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == cachedUsername.ToLower());
+                }
+
+                if (user == null)
+                {
+                    return NotFound();
+                }
             }
 
             var profile = await BuildProfileResponseAsync(user);
@@ -185,6 +201,20 @@ public class YggdrasilController : ControllerBase
     private static string BuildJoinCacheKey(string serverId, string username)
         => $"join:{serverId.Trim()}:{username.Trim().ToLowerInvariant()}";
 
+    private static string BuildUuidCacheKey(string uuidNoDashes)
+        => $"uuidmap:{uuidNoDashes.Trim().ToLowerInvariant()}";
+
+    private static string GenerateOfflineUuid(string username)
+    {
+        // Vanilla offline UUID algorithm: nameUUIDFromBytes(("OfflinePlayer:" + name).getBytes("UTF-8"))
+        var input = $"OfflinePlayer:{username}";
+        using var md5 = MD5.Create();
+        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
+        hash[6] = (byte)((hash[6] & 0x0F) | 0x30);
+        hash[8] = (byte)((hash[8] & 0x3F) | 0x80);
+        return new Guid(hash).ToString();
+    }
+
     private async Task<object> BuildProfileResponseAsync(Models.User user)
     {
         // Получаем активный скин пользователя
@@ -253,6 +283,11 @@ public class YggdrasilController : ControllerBase
     {
         try
         {
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                return BadRequest();
+            }
+
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
 
@@ -261,9 +296,18 @@ public class YggdrasilController : ControllerBase
                 return NotFound();
             }
 
+            // Offline-mode compatibility:
+            // Return the offline UUID for the requested username and cache uuid->username,
+            // so /profile/{uuid} can resolve and return textures.
+            var offlineUuid = GenerateOfflineUuid(username).Replace("-", "");
+            _cache.Set(BuildUuidCacheKey(offlineUuid), username, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = UuidLookupTtl
+            });
+
             var profile = new
             {
-                id = user.MinecraftUUID.Replace("-", ""),
+                id = offlineUuid,
                 name = user.Username
             };
 
@@ -293,12 +337,24 @@ public class YggdrasilController : ControllerBase
                 .Where(u => lowerUsernames.Contains(u.Username.ToLower()))
                 .Select(u => new
                 {
-                    id = u.MinecraftUUID.Replace("-", ""),
                     name = u.Username
                 })
                 .ToListAsync();
 
-            return Ok(users);
+            var result = new List<object>(users.Count);
+            foreach (var u in users)
+            {
+                var requested = usernames.FirstOrDefault(x => string.Equals(x, u.name, StringComparison.OrdinalIgnoreCase)) ?? u.name;
+                var offlineUuid = GenerateOfflineUuid(requested).Replace("-", "");
+                _cache.Set(BuildUuidCacheKey(offlineUuid), requested, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = UuidLookupTtl
+                });
+
+                result.Add(new { id = offlineUuid, name = u.name });
+            }
+
+            return Ok(result);
         }
         catch (Exception ex)
         {
