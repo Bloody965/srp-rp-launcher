@@ -7,6 +7,7 @@ using System.Reactive;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using ApocalypseLauncher.Core;
 using ApocalypseLauncher.Core.Models;
 using ApocalypseLauncher.Core.Services;
 using ReactiveUI;
@@ -16,7 +17,7 @@ namespace ApocalypseLauncher.ViewModels;
 
 public class MainWindowViewModel : ViewModelBase
 {
-    private const string ApiBaseUrl = "https://srp-rp-launcher-production.up.railway.app";
+    private static string ApiBaseUrl => SrpProjectEndpoints.ApiBaseUrl;
     private readonly AuthService _authService;
     private MinecraftInstaller _installer;
     private readonly GameLauncher _gameLauncher;
@@ -38,7 +39,7 @@ public class MainWindowViewModel : ViewModelBase
         _authService = new AuthService();
         _installer = new MinecraftInstaller(_minecraftDirectory);
         _gameLauncher = new GameLauncher();
-        _apiService = new ApiService(ApiBaseUrl);
+        _apiService = new ApiService();
         _modpackUpdater = new ModpackUpdater(_minecraftDirectory, _apiService);
         _updateService = new LauncherUpdateService(ApiBaseUrl);
         _skinService = new SkinService(_apiService, _minecraftDirectory);
@@ -3421,7 +3422,7 @@ public class MainWindowViewModel : ViewModelBase
             };
 
             var response = await _httpClient.PostAsync(
-                "https://srp-rp-launcher-production.up.railway.app/api/LogAnalyzer/analyze",
+                SrpProjectEndpoints.LogAnalyzerAnalyzeUri,
                 new StringContent(
                     System.Text.Json.JsonSerializer.Serialize(requestBody),
                     System.Text.Encoding.UTF8,

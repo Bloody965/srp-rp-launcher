@@ -110,7 +110,13 @@ public class YggdrasilController : ControllerBase
         }
 
         if (hosts.Count == 0)
-            hosts.Add("srp-rp-launcher-production.up.railway.app");
+        {
+            var fallback = GetPublicBaseUrl();
+            if (Uri.TryCreate(fallback, UriKind.Absolute, out var fu) && !string.IsNullOrEmpty(fu.Host))
+                hosts.Add(fu.Host);
+            else
+                hosts.Add("srp-rp-launcher-production.up.railway.app");
+        }
 
         return hosts.ToArray();
     }

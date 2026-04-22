@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using ApocalypseLauncher.Core;
 using System.Net.Http.Json;
 using System.Linq;
 using System.Text.Json;
@@ -13,8 +14,12 @@ public class ApiService
     private readonly HttpClient _httpClient;
     private string? _authToken;
 
-    public ApiService(string baseUrl = "http://localhost:5000")
+    /// <param name="baseUrl">Пусто или null — <see cref="SrpProjectEndpoints.ApiBaseUrl"/>; для локальной отладки: <c>http://localhost:5000</c>.</param>
+    public ApiService(string? baseUrl = null)
     {
+        var resolved = string.IsNullOrWhiteSpace(baseUrl)
+            ? SrpProjectEndpoints.ApiBaseUrl
+            : baseUrl.Trim().TrimEnd('/');
         var allowInsecureTls = string.Equals(
             Environment.GetEnvironmentVariable("LAUNCHER_ALLOW_INSECURE_TLS"),
             "true",
@@ -33,11 +38,11 @@ public class ApiService
 
         _httpClient = new HttpClient(handler)
         {
-            BaseAddress = new Uri(baseUrl),
+            BaseAddress = new Uri(resolved),
             Timeout = TimeSpan.FromSeconds(30)
         };
 
-        Console.WriteLine($"[ApiService] Initialized with base URL: {baseUrl}");
+        Console.WriteLine($"[ApiService] Initialized with base URL: {resolved}");
     }
 
     public void SetAuthToken(string token)

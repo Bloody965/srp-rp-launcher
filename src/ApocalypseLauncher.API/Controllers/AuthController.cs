@@ -364,7 +364,7 @@ public class AuthController : ControllerBase
         }
 
         var code = request?.HandoffCode?.Trim() ?? string.Empty;
-        if (code.Length < 12)
+        if (code.Length < 12 || code.Length > 256)
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Некорректный код" });
         }

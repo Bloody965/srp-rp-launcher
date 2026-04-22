@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using ApocalypseLauncher.Core;
 using ApocalypseLauncher.Core.Models;
 
 namespace ApocalypseLauncher.Core.Services;
@@ -127,7 +128,7 @@ public class GameLauncher
         if (File.Exists(authlibPath))
         {
             Log("Adding authlib-injector for custom skins...");
-            args.Add($"-javaagent:{authlibPath}=https://srp-rp-launcher-production.up.railway.app/api/yggdrasil");
+            args.Add($"-javaagent:{authlibPath}={SrpProjectEndpoints.YggdrasilRootUrl}");
         }
 
         // Forge-специфичные JVM аргументы

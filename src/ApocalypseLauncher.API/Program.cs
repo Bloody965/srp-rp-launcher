@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using ApocalypseLauncher.API;
 using ApocalypseLauncher.API.Data;
 using ApocalypseLauncher.API.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -168,7 +169,12 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddControllers();
 
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+var allowedOrigins = CorsConfiguration.GetAllowedOrigins(builder.Configuration);
+if (allowedOrigins.Length > 0)
+{
+    Console.WriteLine($"[CORS] Явные origin ({allowedOrigins.Length}): {string.Join("; ", allowedOrigins)}");
+}
+
 var corsAllowAny = string.Equals(
         builder.Configuration["Cors:AllowAnyOrigin"],
         "true",
