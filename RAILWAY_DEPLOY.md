@@ -56,8 +56,9 @@ Cors__AllowedOrigins__0=https://ваш-статический-сайт.github.io
 
 ## Шаг 5. Лаунчер и сайт
 
-- **Лаунчер**: в `src/ApocalypseLauncher/Core/Services/ApiService.cs` базовый URL API должен совпадать с Railway (или настраивается в вашем UI лаунчера — смотрите проект).
-- **Сайт** (`отдельный` репозиторий/хостинг): в HTML выставьте тот же URL в `data-auth-api` и в CSP `connect-src`, и добавьте этот же URL как **`Cors__AllowedOrigins__0`**.
+- **Лаунчер**: единый дефолт URL — `src/ApocalypseLauncher/Core/SrpProjectEndpoints.cs` (`DefaultApiBaseUrl`). На ПК игрока можно задать **`SRP_API_BASE_URL`** без пересборки.
+- **Сайт**: файл **`js/auth-config.js`** (`window.SRP_AUTH_API_BASE`) + CSP **`connect-src`** на страницах входа; при смене API обновите оба и атрибуты **`integrity`** у скриптов.
+- **Railway CORS к сайту**: **`Cors__AllowedOrigins__0`** или **`SITE_PUBLIC_ORIGIN`** (один HTTPS-origin, как в адресной строке сайта).
 
 ## Шаг 6. Локальная проверка Docker (по желанию)
 
