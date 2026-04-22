@@ -2116,6 +2116,10 @@ public class MainWindowViewModel : ViewModelBase
             StatusMessage = "Извлечение нативных библиотек...";
             _installer.ExtractNatives(launchOptions.Version);
 
+            // Чиним битые/пропущенные ассеты (частая причина Missing sound/texture warnings).
+            StatusMessage = "Проверка ассетов...";
+            await _installer.VerifyAndRepairAssetsAsync();
+
             StatusMessage = "Запуск игры...";
             _gameLauncher.LaunchGame(launchOptions);
 

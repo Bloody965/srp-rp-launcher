@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using ApocalypseLauncher.Core.Models;
 using Newtonsoft.Json.Linq;
@@ -426,7 +427,9 @@ public class MinecraftInstaller
             var assetUrl = $"https://resources.download.minecraft.net/{hashPrefix}/{hash}";
             var assetPath = Path.Combine(objectsDir, hashPrefix, hash);
 
-            if (!File.Exists(assetPath))
+            // Важно: не только отсутствие файла, но и проверка его SHA1.
+            // Иначе можно получить "missing sound" при битом/обрезанном asset файле.
+            if (!File.Exists(assetPath) || !HasExpectedSha1(assetPath, hash))
             {
                 assetsToDownload.Add((assetUrl, assetPath));
             }
@@ -468,6 +471,100 @@ public class MinecraftInstaller
 
         StatusChanged?.Invoke(this, $"Все ассеты загружены: {downloaded} новых файлов");
         Console.WriteLine($"Assets complete: {downloaded} downloaded");
+    }
+
+    public async Task VerifyAndRepairAssetsAsync()
+    {
+        try
+        {
+            var versionJsonPath = Path.Combine(_minecraftDirectory, "versions", VERSION, $"{VERSION}.json");
+            if (!File.Exists(versionJsonPath))
+            {
+                Console.WriteLine("[VerifyAndRepairAssets] version.json not found, skipping");
+                return;
+            }
+
+            var versionJson = JObject.Parse(File.ReadAllText(versionJsonPath));
+            var assetIndex = versionJson["assetIndex"];
+            var assetIndexUrl = assetIndex?["url"]?.ToString();
+            var assetIndexId = assetIndex?["id"]?.ToString();
+            if (string.IsNullOrEmpty(assetIndexUrl) || string.IsNullOrEmpty(assetIndexId))
+            {
+                Console.WriteLine("[VerifyAndRepairAssets] asset index info is missing, skipping");
+                return;
+            }
+
+            StatusChanged?.Invoke(this, "Проверка целостности ассетов...");
+
+            var indexesDir = Path.Combine(_minecraftDirectory, "assets", "indexes");
+            Directory.CreateDirectory(indexesDir);
+            var indexPath = Path.Combine(indexesDir, $"{assetIndexId}.json");
+            await _downloadService.DownloadFileAsync(assetIndexUrl, indexPath);
+
+            var indexJson = JObject.Parse(File.ReadAllText(indexPath));
+            var objects = indexJson["objects"] as JObject;
+            if (objects == null)
+            {
+                return;
+            }
+
+            var objectsDir = Path.Combine(_minecraftDirectory, "assets", "objects");
+            var toRepair = new List<(string url, string path)>();
+
+            foreach (var obj in objects.Properties())
+            {
+                var hash = obj.Value["hash"]?.ToString();
+                if (string.IsNullOrEmpty(hash))
+                {
+                    continue;
+                }
+
+                var hashPrefix = hash.Substring(0, 2);
+                var assetPath = Path.Combine(objectsDir, hashPrefix, hash);
+                if (File.Exists(assetPath) && HasExpectedSha1(assetPath, hash))
+                {
+                    continue;
+                }
+
+                var assetUrl = $"https://resources.download.minecraft.net/{hashPrefix}/{hash}";
+                toRepair.Add((assetUrl, assetPath));
+            }
+
+            if (toRepair.Count == 0)
+            {
+                StatusChanged?.Invoke(this, "Ассеты в порядке");
+                return;
+            }
+
+            StatusChanged?.Invoke(this, $"Восстановление ассетов: {toRepair.Count} файлов...");
+            foreach (var item in toRepair)
+            {
+                await _downloadService.DownloadFileAsync(item.url, item.path);
+            }
+
+            StatusChanged?.Invoke(this, "Ассеты восстановлены");
+            Console.WriteLine($"[VerifyAndRepairAssets] Repaired assets: {toRepair.Count}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[VerifyAndRepairAssets] Error: {ex.Message}");
+        }
+    }
+
+    private static bool HasExpectedSha1(string filePath, string expectedHashHex)
+    {
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            using var sha1 = SHA1.Create();
+            var hashBytes = sha1.ComputeHash(stream);
+            var actual = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+            return string.Equals(actual, expectedHashHex.ToLowerInvariant(), StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void CreateDirectories()
