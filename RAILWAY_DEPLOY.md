@@ -1,151 +1,88 @@
-# Railway Deployment Guide
+# Деплой API на Railway (актуально под этот репозиторий)
 
-## Быстрый деплой на Railway.app
+Репозиторий уже содержит **`Dockerfile`** в **корне** и **`railway.json`** (сборка через Docker). Подключение аккаунта Railway и репозитория GitHub вы делаете вручную один раз; дальше деплой идёт сам при `git push`.
 
-### Шаг 1: Создание аккаунта
+## Что вы деплоите
 
-1. Перейдите на https://railway.app
-2. Нажмите "Start a New Project"
-3. Войдите через GitHub
+- Один сервис **API** (`ApocalypseLauncher.API`, .NET 8).
+- Рекомендуется **PostgreSQL** от Railway (переменная `DATABASE_URL`).
 
-### Шаг 2: Подключение репозитория
+## Шаг 1. Railway + GitHub
 
-1. Выберите "Deploy from GitHub repo"
-2. Найдите репозиторий `Bloody965/srp-rp-launcher`
-3. Нажмите "Deploy Now"
+1. Зайдите на [railway.app](https://railway.app), войдите через GitHub.
+2. **New Project** → **Deploy from GitHub repo** → выберите этот репозиторий.
+3. У сервиса с API откройте **Settings**:
+   - **Root Directory** оставьте **пустым** (корень репозитория), чтобы использовался корневой `Dockerfile`.
+   - Убедитесь, что в корне виден `railway.json` с `"builder": "DOCKERFILE"`.
 
-### Шаг 3: Настройка проекта
+Не указывайте Root Directory `src/ApocalypseLauncher.API` — это старый сценарий без Docker и только запутает.
 
-Railway автоматически определит .NET проект, но нужно указать путь:
+## Шаг 2. PostgreSQL
 
-1. В настройках проекта добавьте:
-   - **Root Directory**: `src/ApocalypseLauncher.API`
-   - **Build Command**: `dotnet publish -c Release -o out`
-   - **Start Command**: `dotnet out/ApocalypseLauncher.API.dll`
+1. В проекте Railway: **New** → **Database** → **PostgreSQL**.
+2. В сервисе **API** → **Variables** → **Add Reference** (или аналог) и подключите **`DATABASE_URL`** из базы к сервису API.
 
-### Шаг 4: Добавление PostgreSQL
+API сам читает `DATABASE_URL` из окружения (см. `Program.cs`).
 
-1. Нажмите "New" → "Database" → "Add PostgreSQL"
-2. Railway автоматически создаст переменную `DATABASE_URL`
-3. API автоматически подключится к PostgreSQL
+## Шаг 3. Переменные окружения (обязательно)
 
-### Шаг 5: Настройка переменных окружения
+В сервисе **API** → **Variables**:
 
-Добавьте в Variables:
+| Переменная | Зачем |
+|------------|--------|
+| **`Jwt__SecretKey`** | Секрет подписи JWT и handoff сайт→лаунчер. Длинная случайная строка (лучше 48+ байт в base64). На Windows: `pwsh scripts/New-JwtSecret.ps1` |
+| **`Cors__AllowedOrigins__0`** | Полный origin сайта, например `https://ваш-ник.github.io`. Без слэша в конце. |
+| **`DATABASE_URL`** | Из Postgres (reference). |
 
-```bash
-# JWT Secret (ОБЯЗАТЕЛЬНО!)
-Jwt__SecretKey=СГЕНЕРИРУЙТЕ_СЛУЧАЙНУЮ_СТРОКУ_64_СИМВОЛА
+В **Production** приложение **не стартует**, если:
 
-# Minecraft Server (ваш IP)
-MinecraftServer__Address=185.9.145.97
-MinecraftServer__Port=30002
+- нет **`Jwt__SecretKey`** (или он «плейсхолдер» из примера), и/или  
+- **пустой список CORS** и не задан обход.
 
-# CORS (опционально)
-Cors__AllowedOrigins__0=https://your-domain.com
+Временный обход (только для отладки):
+
+```text
+CORS_ALLOW_ANY_ORIGIN=true
 ```
 
-**Генерация JWT ключа:**
-```bash
-openssl rand -base64 64
+Потом удалите и пропишите **`Cors__AllowedOrigins__0`**.
+
+Шаблон без секретов: `scripts/railway-variables.example.env`.
+
+## Шаг 4. Публичный URL
+
+1. Сервис API → **Settings** → **Networking** → **Generate Domain**.
+2. Проверка: откройте в браузере  
+   `https://ВАШ-ДОМЕН.up.railway.app/api/health`  
+   должен вернуться JSON со `status: "healthy"`.
+
+## Шаг 5. Лаунчер и сайт
+
+- **Лаунчер**: в `src/ApocalypseLauncher/Core/Services/ApiService.cs` базовый URL API должен совпадать с Railway (или настраивается в вашем UI лаунчера — смотрите проект).
+- **Сайт** (`отдельный` репозиторий/хостинг): в HTML выставьте тот же URL в `data-auth-api` и в CSP `connect-src`, и добавьте этот же URL как **`Cors__AllowedOrigins__0`**.
+
+## Шаг 6. Локальная проверка Docker (по желанию)
+
+Из корня репозитория:
+
+```powershell
+pwsh scripts/build-api-docker.ps1
+docker run --rm -e PORT=8080 -e Jwt__SecretKey="ВАША_СЛУЧАЙНАЯ_СТРОКА_НЕ_ИЗ_ПРИМЕРА" -p 8080:8080 srp-rp-api:local
 ```
 
-### Шаг 6: Получение URL
+Откройте `http://localhost:8080/api/health`.
 
-После деплоя Railway даст вам URL типа:
-```
-https://srp-rp-launcher-production.up.railway.app
-```
+## CI в GitHub
 
-Это и есть ваш API URL!
+Workflow **`.github/workflows/ci-api.yml`**: при push в `main`/`master` собирается проект API и проверяется `docker build`. Ничего дополнительно включать не нужно.
 
-### Шаг 7: Настройка HTTPS сертификата
+## Частые ошибки
 
-1. Railway автоматически выдает SSL сертификат
-2. Получите хеш сертификата:
+| Симптом | Что сделать |
+|---------|-------------|
+| Контейнер падает при старте | Логи Deployments → Logs; проверьте `Jwt__SecretKey` и CORS (см. выше). |
+| С сайта «CORS» в консоли браузера | Точное совпадение `https://` + домен в `Cors__AllowedOrigins__0` с origin страницы. |
+| 502 | API не слушает порт: в образе используется `docker-entrypoint.sh` и переменная **`PORT`** от Railway — не переопределяйте `ENTRYPOINT` вручную. |
+| Certificate pinning в лаунчере | Отдельная настройка в `CertificatePinning.cs` (опционально). |
 
-```bash
-openssl s_client -connect srp-rp-launcher-production.up.railway.app:443 </dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
-```
-
-3. Добавьте хеш в `src/ApocalypseLauncher/Core/Security/CertificatePinning.cs`:
-
-```csharp
-private static readonly HashSet<string> TrustedCertificateHashes = new()
-{
-    "ВАШ_ХЕШ_СЕРТИФИКАТА_ЗДЕСЬ"
-};
-```
-
-### Шаг 8: Обновление лаунчера
-
-В `src/ApocalypseLauncher/Core/Services/ApiService.cs`:
-
-```csharp
-public ApiService(string baseUrl = "https://srp-rp-launcher-production.up.railway.app")
-```
-
-Пересоберите лаунчер:
-```bash
-cd src/ApocalypseLauncher
-dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
-```
-
-## Проверка работы
-
-1. Откройте в браузере:
-   ```
-   https://your-railway-url.up.railway.app/api/health
-   ```
-
-   Должно вернуть:
-   ```json
-   {
-     "status": "healthy",
-     "timestamp": "2026-04-18T...",
-     "version": "1.0.0"
-   }
-   ```
-
-2. Запустите лаунчер и попробуйте зарегистрироваться
-
-## Мониторинг
-
-Railway предоставляет:
-- Логи в реальном времени
-- Метрики CPU/RAM
-- Автоматические рестарты при падении
-- Автодеплой при push в GitHub
-
-## Стоимость
-
-- **Free tier**: 500 часов/месяц (~20 дней)
-- **Hobby**: $5/месяц - unlimited
-- **Pro**: $20/месяц - больше ресурсов
-
-Для начала Free tier достаточно!
-
-## Troubleshooting
-
-### Ошибка "JWT SecretKey not configured"
-Добавьте переменную `Jwt__SecretKey` в Railway Variables
-
-### Ошибка подключения к БД
-Railway автоматически создает `DATABASE_URL`, проверьте что она есть
-
-### 502 Bad Gateway
-Проверьте логи в Railway Dashboard, возможно ошибка при старте
-
-### Certificate pinning fails
-Убедитесь что добавили правильный хеш сертификата Railway
-
-## Следующие шаги
-
-1. Настройте custom domain (опционально)
-2. Добавьте мониторинг (Sentry, LogRocket)
-3. Настройте бэкапы PostgreSQL
-4. Добавьте CDN для модпаков (Cloudflare R2, AWS S3)
-
----
-
-**Готово!** Ваш API работает 24/7 с автоматическими обновлениями из GitHub.
+После первого успешного деплоя достаточно пушить в `main` — Railway пересоберёт образ из `Dockerfile`.

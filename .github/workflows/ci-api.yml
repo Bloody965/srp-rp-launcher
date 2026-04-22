@@ -1,0 +1,36 @@
+name: CI API
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "src/ApocalypseLauncher.API/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - ".github/workflows/ci-api.yml"
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "src/ApocalypseLauncher.API/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - ".github/workflows/ci-api.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore and build API
+        run: |
+          dotnet restore "src/ApocalypseLauncher.API/ApocalypseLauncher.API.csproj"
+          dotnet build "src/ApocalypseLauncher.API/ApocalypseLauncher.API.csproj" -c Release --no-restore
+
+      - name: Docker build (syntax check)
+        run: docker build -t apocalypse-api:ci .

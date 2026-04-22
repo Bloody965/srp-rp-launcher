@@ -20,8 +20,9 @@ COPY --from=publish /app/publish .
 # Создаём папки для данных
 RUN mkdir -p /app/data /app/modpacks
 
-ENV ASPNETCORE_URLS=http://0.0.0.0:$PORT
-ENV ASPNETCORE_ENVIRONMENT=Production
-ENV PORT=5000
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
-ENTRYPOINT ["dotnet", "ApocalypseLauncher.API.dll"]
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

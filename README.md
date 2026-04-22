@@ -29,6 +29,10 @@
 
 ## 🚀 Быстрый старт
 
+### Деплой API на Railway
+
+В корне репозитория: **`Dockerfile`**, **`railway.json`**, **`docker-entrypoint.sh`** (слушает порт из переменной **`PORT`**). Пошаговая инструкция: **[RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md)**. Скрипты: **`scripts/build-api-docker.ps1`**, **`scripts/New-JwtSecret.ps1`**, шаблон переменных **`scripts/railway-variables.example.env`**.
+
 ### Требования
 - .NET 8.0 SDK
 - Windows 10/11 (для лаунчера)
