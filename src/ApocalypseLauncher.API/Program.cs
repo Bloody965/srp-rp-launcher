@@ -192,23 +192,50 @@ builder.Services.AddCors(options =>
               .AllowAnyHeader()
               .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
 
-        if (allowedOrigins.Length > 0)
+        // SetIsOriginAllowed вместо только WithOrigins: так preflight получает ACAO даже если
+        // в Variables опечатка в Cors__AllowedOrigins__0, плюс доверенные HTTPS-хостинги статики.
+        policy.SetIsOriginAllowed(origin =>
         {
-            policy.WithOrigins(allowedOrigins);
-        }
-        else
-        {
-            policy.AllowAnyOrigin();
-            if (!isDevelopment && !corsAllowAny)
+            if (string.IsNullOrWhiteSpace(origin))
+                return false;
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                return false;
+
+            if (corsAllowAny)
+                return true;
+
+            var normalized = $"{uri.Scheme}://{uri.Host}{(uri.IsDefaultPort ? "" : ":" + uri.Port)}";
+            foreach (var o in allowedOrigins)
             {
-                Console.WriteLine(
-                    "[CORS] ВНИМАНИЕ: Cors:AllowedOrigins пуст — включён AllowAnyOrigin. Лаунчер и сайт работают; для жёсткого CORS добавьте в Railway, например: Cors__AllowedOrigins__0=https://ваш-сайт");
+                if (string.Equals(normalized, o, StringComparison.OrdinalIgnoreCase))
+                    return true;
             }
-            else
+
+            if (isDevelopment)
+                return true;
+
+            if (allowedOrigins.Length == 0)
+                return true;
+
+            if (uri.Scheme == Uri.UriSchemeHttps)
             {
-                Console.WriteLine("[CORS] AllowAnyOrigin (список Cors:AllowedOrigins пуст или явно разрешён обход).");
+                var h = uri.IdnHost;
+                if (h.EndsWith(".workers.dev", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (h.EndsWith(".pages.dev", StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (h.Equals("github.io", StringComparison.OrdinalIgnoreCase)
+                    || h.EndsWith(".github.io", StringComparison.OrdinalIgnoreCase))
+                    return true;
             }
-        }
+
+            if (uri.Scheme == Uri.UriSchemeHttp
+                && (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            return false;
+        });
     });
 });
 
@@ -312,6 +339,7 @@ if (!isDevelopment)
     app.UseHttpsRedirection();
 }
 
+app.UseRouting();
 app.UseCors("LauncherPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
