@@ -1,8 +1,11 @@
 using System;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reactive;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using ApocalypseLauncher.Core.Models;
 using ApocalypseLauncher.Core.Services;
@@ -103,9 +106,14 @@ public class MainWindowViewModel : ViewModelBase
         ShowPersonalizationTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Personalization"; });
         ShowLogsTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Logs"; });
         ShowProfileTabCommand = ReactiveCommand.Create(() => { CurrentTab = "Profile"; });
+        ShowAdminTabCommand = ReactiveCommand.CreateFromTask(ShowAdminTabAsync);
         RefreshLogsCommand = ReactiveCommand.CreateFromTask(RefreshLogsAsync);
         AnalyzeLogsWithAICommand = ReactiveCommand.CreateFromTask(AnalyzeLogsWithAIAsync);
         CloseLogAnalysisCommand = ReactiveCommand.Create(CloseLogAnalysis);
+        RefreshAdminUsersCommand = ReactiveCommand.CreateFromTask(LoadAdminUsersAsync);
+        AdminResetPasswordCommand = ReactiveCommand.CreateFromTask(AdminResetPasswordAsync);
+        AdminDeleteUserCommand = ReactiveCommand.CreateFromTask(AdminDeleteSelectedUserAsync);
+        ToggleBanUserCommand = ReactiveCommand.CreateFromTask(ToggleBanSelectedUserAsync);
 
         // Загружаем настройки RAM
         LoadRamSettings();
@@ -175,7 +183,8 @@ public class MainWindowViewModel : ViewModelBase
             // Format v1 fallback: token|username|email
             var safeUuid = minecraftUuid ?? string.Empty;
             var data = $"{token}|{username}|{email}|{safeUuid}";
-            File.WriteAllText(GetTokenFilePath(), data);
+            var protectedData = ProtectSessionData(data);
+            File.WriteAllText(GetTokenFilePath(), protectedData);
             Console.WriteLine("[SaveToken] Токен сохранен");
         }
         catch (Exception ex)
@@ -195,7 +204,9 @@ public class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            var data = File.ReadAllText(tokenFile).Split('|');
+            var rawSessionData = File.ReadAllText(tokenFile);
+            var unprotectedData = UnprotectSessionData(rawSessionData);
+            var data = unprotectedData.Split('|');
             if (data.Length < 3)
             {
                 Console.WriteLine("[TryAutoLogin] Неверный формат токена");
@@ -244,6 +255,7 @@ public class MainWindowViewModel : ViewModelBase
                 await CheckModpackVersionAsync();
                 await LoadProfileAsync();
                 await LoadCurrentSkinAsync();
+                await RefreshAdminAccessAsync();
                 Console.WriteLine("[TryAutoLogin] Автоматический вход выполнен");
             }
             else
@@ -256,6 +268,53 @@ public class MainWindowViewModel : ViewModelBase
         {
             Console.WriteLine($"[TryAutoLogin] Ошибка: {ex.Message}");
         }
+    }
+
+    private static string ProtectSessionData(string plainText)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var bytes = Encoding.UTF8.GetBytes(plainText);
+                var protectedBytes = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+                return "enc:" + Convert.ToBase64String(protectedBytes);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ProtectSessionData] Warning: {ex.Message}");
+        }
+
+        // Fallback for non-Windows/runtime constraints.
+        return plainText;
+    }
+
+    private static string UnprotectSessionData(string storedData)
+    {
+        try
+        {
+            if (storedData.StartsWith("enc:", StringComparison.Ordinal))
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    return string.Empty;
+                }
+
+                var payload = storedData.Substring(4);
+                var protectedBytes = Convert.FromBase64String(payload);
+                var bytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(bytes);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[UnprotectSessionData] Warning: {ex.Message}");
+            return string.Empty;
+        }
+
+        // Backward compatibility for old plaintext session.dat.
+        return storedData;
     }
 
     private string _username = "Survivor";
@@ -623,6 +682,50 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _currentTab, value);
     }
 
+    private bool _isAdmin;
+    public bool IsAdmin
+    {
+        get => _isAdmin;
+        set => this.RaiseAndSetIfChanged(ref _isAdmin, value);
+    }
+
+    private bool _isAdminBusy;
+    public bool IsAdminBusy
+    {
+        get => _isAdminBusy;
+        set => this.RaiseAndSetIfChanged(ref _isAdminBusy, value);
+    }
+
+    private string _adminStatusMessage = "Проверка прав администратора...";
+    public string AdminStatusMessage
+    {
+        get => _adminStatusMessage;
+        set => this.RaiseAndSetIfChanged(ref _adminStatusMessage, value);
+    }
+
+    private AdminUserItem? _selectedAdminUser;
+    public AdminUserItem? SelectedAdminUser
+    {
+        get => _selectedAdminUser;
+        set => this.RaiseAndSetIfChanged(ref _selectedAdminUser, value);
+    }
+
+    private string _adminNewPassword = string.Empty;
+    public string AdminNewPassword
+    {
+        get => _adminNewPassword;
+        set => this.RaiseAndSetIfChanged(ref _adminNewPassword, value);
+    }
+
+    private string _adminBanReason = string.Empty;
+    public string AdminBanReason
+    {
+        get => _adminBanReason;
+        set => this.RaiseAndSetIfChanged(ref _adminBanReason, value);
+    }
+
+    public ObservableCollection<AdminUserItem> AdminUsers { get; } = new();
+
     private string _gameLogs = "Логи игры появятся здесь после запуска Minecraft...";
     public string GameLogs
     {
@@ -662,6 +765,7 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> ShowPersonalizationTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowLogsTabCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowProfileTabCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowAdminTabCommand { get; }
 
     public ReactiveCommand<Unit, Unit> LoginCommand { get; }
     public ReactiveCommand<Unit, Unit> RegisterCommand { get; }
@@ -684,6 +788,10 @@ public class MainWindowViewModel : ViewModelBase
     public ReactiveCommand<Unit, Unit> RefreshLogsCommand { get; }
     public ReactiveCommand<Unit, Unit> AnalyzeLogsWithAICommand { get; }
     public ReactiveCommand<Unit, Unit> CloseLogAnalysisCommand { get; }
+    public ReactiveCommand<Unit, Unit> RefreshAdminUsersCommand { get; }
+    public ReactiveCommand<Unit, Unit> AdminResetPasswordCommand { get; }
+    public ReactiveCommand<Unit, Unit> AdminDeleteUserCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleBanUserCommand { get; }
 
     private async Task ChooseFolderAsync()
     {
@@ -717,6 +825,172 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
+    private async Task ShowAdminTabAsync()
+    {
+        if (!IsAdmin)
+        {
+            AdminStatusMessage = "Нет прав для доступа к админ-панели";
+            return;
+        }
+
+        CurrentTab = "Admin";
+        await LoadAdminUsersAsync();
+    }
+
+    private async Task RefreshAdminAccessAsync()
+    {
+        try
+        {
+            var access = await _apiService.GetAdminAccessAsync();
+            IsAdmin = access.Data == true;
+            AdminStatusMessage = IsAdmin ? "Админ-доступ подтвержден" : "У вас нет прав администратора";
+            if (!IsAdmin && CurrentTab == "Admin")
+            {
+                CurrentTab = "Home";
+            }
+        }
+        catch (Exception ex)
+        {
+            IsAdmin = false;
+            AdminStatusMessage = $"Ошибка проверки админ-доступа: {ex.Message}";
+        }
+    }
+
+    private async Task LoadAdminUsersAsync()
+    {
+        if (!IsAdmin)
+        {
+            return;
+        }
+
+        try
+        {
+            IsAdminBusy = true;
+            AdminStatusMessage = "Загрузка игроков...";
+            var result = await _apiService.GetAdminUsersAsync();
+            if (!result.IsSuccess || result.Data == null)
+            {
+                AdminStatusMessage = result.ErrorMessage ?? "Не удалось загрузить список игроков";
+                return;
+            }
+
+            AdminUsers.Clear();
+            foreach (var user in result.Data)
+            {
+                AdminUsers.Add(new AdminUserItem
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    IsActive = user.IsActive,
+                    IsBanned = user.IsBanned,
+                    IsWhitelisted = user.IsWhitelisted,
+                    CreatedAt = user.CreatedAt,
+                    LastLoginAt = user.LastLoginAt
+                });
+            }
+
+            SelectedAdminUser = AdminUsers.FirstOrDefault();
+            AdminStatusMessage = $"Загружено пользователей: {AdminUsers.Count}";
+        }
+        catch (Exception ex)
+        {
+            AdminStatusMessage = $"Ошибка загрузки игроков: {ex.Message}";
+        }
+        finally
+        {
+            IsAdminBusy = false;
+        }
+    }
+
+    private async Task AdminResetPasswordAsync()
+    {
+        if (SelectedAdminUser == null)
+        {
+            AdminStatusMessage = "Выберите пользователя";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(AdminNewPassword))
+        {
+            AdminStatusMessage = "Введите новый пароль для сброса";
+            return;
+        }
+
+        try
+        {
+            IsAdminBusy = true;
+            var result = await _apiService.AdminResetUserPasswordAsync(SelectedAdminUser.Id, AdminNewPassword.Trim());
+            AdminStatusMessage = result.IsSuccess ? (result.Data ?? "Пароль сброшен") : (result.ErrorMessage ?? "Ошибка сброса пароля");
+            AdminNewPassword = string.Empty;
+        }
+        finally
+        {
+            IsAdminBusy = false;
+        }
+    }
+
+    private async Task ToggleBanSelectedUserAsync()
+    {
+        if (SelectedAdminUser == null)
+        {
+            AdminStatusMessage = "Выберите пользователя";
+            return;
+        }
+
+        try
+        {
+            IsAdminBusy = true;
+            var targetBanState = !SelectedAdminUser.IsBanned;
+            var reason = targetBanState ? AdminBanReason?.Trim() : null;
+            var result = await _apiService.AdminSetBanAsync(SelectedAdminUser.Id, targetBanState, reason);
+            AdminStatusMessage = result.IsSuccess ? (result.Data ?? "Статус блокировки обновлен") : (result.ErrorMessage ?? "Ошибка обновления блокировки");
+
+            if (result.IsSuccess)
+            {
+                SelectedAdminUser.IsBanned = targetBanState;
+                this.RaisePropertyChanged(nameof(SelectedAdminUser));
+                if (targetBanState)
+                {
+                    AdminBanReason = string.Empty;
+                }
+            }
+        }
+        finally
+        {
+            IsAdminBusy = false;
+        }
+    }
+
+    private async Task AdminDeleteSelectedUserAsync()
+    {
+        if (SelectedAdminUser == null)
+        {
+            AdminStatusMessage = "Выберите пользователя";
+            return;
+        }
+
+        if (SelectedAdminUser.Username.Equals(Username, StringComparison.OrdinalIgnoreCase))
+        {
+            AdminStatusMessage = "Нельзя удалить текущий аккаунт администратора";
+            return;
+        }
+
+        try
+        {
+            IsAdminBusy = true;
+            var result = await _apiService.AdminDeleteUserAsync(SelectedAdminUser.Id);
+            AdminStatusMessage = result.IsSuccess ? (result.Data ?? "Пользователь удален") : (result.ErrorMessage ?? "Ошибка удаления пользователя");
+            if (result.IsSuccess)
+            {
+                await LoadAdminUsersAsync();
+            }
+        }
+        finally
+        {
+            IsAdminBusy = false;
+        }
+    }
+
     private void Logout()
     {
         IsLoggedIn = false;
@@ -726,6 +1000,13 @@ public class MainWindowViewModel : ViewModelBase
         LoginErrorMessage = null;
         CurrentSkinPath = null;
         CurrentSkinPreview = null;
+        IsAdmin = false;
+        IsAdminBusy = false;
+        CurrentTab = "Home";
+        AdminUsers.Clear();
+        SelectedAdminUser = null;
+        AdminNewPassword = string.Empty;
+        AdminBanReason = string.Empty;
         StatusMessage = "Вы вышли из аккаунта";
 
         // Удаляем сохраненный токен
@@ -1890,6 +2171,7 @@ public class MainWindowViewModel : ViewModelBase
                 await LoadProfileAsync();
                 await LoadServerStatusAsync();
                 await LoadCurrentSkinAsync();
+                await RefreshAdminAccessAsync();
                 return;
             }
 
@@ -2955,4 +3237,31 @@ public class MainWindowViewModel : ViewModelBase
             return $"Ошибка анализа: {ex.Message}\n\nПопробуйте позже или обратитесь в поддержку Discord.";
         }
     }
+}
+
+public class AdminUserItem : ReactiveObject
+{
+    private bool _isBanned;
+
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public bool IsWhitelisted { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+
+    public bool IsBanned
+    {
+        get => _isBanned;
+        set
+        {
+            if (this.RaiseAndSetIfChanged(ref _isBanned, value))
+            {
+                this.RaisePropertyChanged(nameof(StatusText));
+            }
+        }
+    }
+
+    public string StatusText => IsBanned ? "Заблокирован" : (IsActive ? "Активен" : "Отключен");
+    public string LastLoginText => LastLoginAt?.ToLocalTime().ToString("g") ?? "никогда";
 }

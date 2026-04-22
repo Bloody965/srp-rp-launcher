@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ApocalypseLauncher.API.Data;
@@ -15,6 +16,7 @@ public class AuthController : ControllerBase
     private readonly JwtService _jwtService;
     private readonly PasswordService _passwordService;
     private readonly RateLimitService _rateLimitService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
@@ -22,12 +24,14 @@ public class AuthController : ControllerBase
         JwtService jwtService,
         PasswordService passwordService,
         RateLimitService rateLimitService,
+        IConfiguration configuration,
         ILogger<AuthController> logger)
     {
         _context = context;
         _jwtService = jwtService;
         _passwordService = passwordService;
         _rateLimitService = rateLimitService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -376,24 +380,66 @@ public class AuthController : ControllerBase
         await _context.SaveChangesAsync();
     }
 
-    [HttpPost("change-username")]
-    public async Task<ActionResult<AuthResponse>> ChangeUsername([FromBody] ChangeUsernameRequest request)
+    private int? GetCurrentUserIdFromClaims()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(userIdClaim, out var userId) ? userId : null;
+    }
+
+    private async Task<bool> HasActiveSessionAsync(int userId)
     {
         var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
-        var principal = _jwtService.ValidateToken(token);
-
-        if (principal == null)
+        if (string.IsNullOrWhiteSpace(token))
         {
-            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+            return false;
         }
 
-        var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!int.TryParse(userIdClaim, out var userId))
+        var tokenHash = _jwtService.HashToken(token);
+        var session = await _context.LoginSessions
+            .FirstOrDefaultAsync(s => s.Token == tokenHash && s.UserId == userId && !s.IsRevoked);
+
+        if (session == null || session.ExpiresAt < DateTime.UtcNow)
         {
-            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+            return false;
         }
 
         var user = await _context.Users.FindAsync(userId);
+        return user != null && user.IsActive && !user.IsBanned;
+    }
+
+    private async Task<bool> IsCurrentUserAdminAsync()
+    {
+        var callerUserId = GetCurrentUserIdFromClaims();
+        if (callerUserId == null)
+        {
+            return false;
+        }
+
+        if (!await HasActiveSessionAsync(callerUserId.Value))
+        {
+            return false;
+        }
+
+        var adminUserIds = (_configuration["Admin:UserIds"] ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(v => int.TryParse(v, out var id) ? id : -1)
+            .Where(id => id > 0)
+            .ToHashSet();
+
+        return adminUserIds.Contains(callerUserId.Value);
+    }
+
+    [HttpPost("change-username")]
+    [Authorize]
+    public async Task<ActionResult<AuthResponse>> ChangeUsername([FromBody] ChangeUsernameRequest request)
+    {
+        var userId = GetCurrentUserIdFromClaims();
+        if (userId == null)
+        {
+            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
+        }
+
+        var user = await _context.Users.FindAsync(userId.Value);
         if (user == null)
         {
             return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
@@ -413,7 +459,7 @@ public class AuthController : ControllerBase
         }
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        await LogAction(userId, "USERNAME_CHANGED", $"Old: {user.Username}, New: {request.NewUsername}", ip);
+        await LogAction(userId.Value, "USERNAME_CHANGED", $"Old: {user.Username}, New: {request.NewUsername}", ip);
 
         user.Username = request.NewUsername;
         user.UpdatedAt = DateTime.UtcNow;
@@ -435,23 +481,16 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("update-playtime")]
+    [Authorize]
     public async Task<ActionResult<AuthResponse>> UpdatePlayTime([FromBody] UpdatePlayTimeRequest request)
     {
-        var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
-        var principal = _jwtService.ValidateToken(token);
-
-        if (principal == null)
+        var userId = GetCurrentUserIdFromClaims();
+        if (userId == null)
         {
             return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
         }
 
-        var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!int.TryParse(userIdClaim, out var userId))
-        {
-            return Unauthorized(new AuthResponse { Success = false, Message = "Недействительный токен" });
-        }
-
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.FindAsync(userId.Value);
         if (user == null)
         {
             return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
@@ -469,23 +508,16 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet("profile")]
+    [Authorize]
     public async Task<ActionResult<ProfileResponse>> GetProfile()
     {
-        var token = Request.Headers["Authorization"].ToString().Replace("Bearer ", "");
-        var principal = _jwtService.ValidateToken(token);
-
-        if (principal == null)
+        var userId = GetCurrentUserIdFromClaims();
+        if (userId == null)
         {
             return Unauthorized(new { success = false, message = "Недействительный токен" });
         }
 
-        var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!int.TryParse(userIdClaim, out var userId))
-        {
-            return Unauthorized(new { success = false, message = "Недействительный токен" });
-        }
-
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.FindAsync(userId.Value);
         if (user == null)
         {
             return NotFound(new { success = false, message = "Пользователь не найден" });
@@ -501,6 +533,174 @@ public class AuthController : ControllerBase
             LastLoginAt = user.LastLoginAt
         });
     }
+
+    [HttpGet("admin/access")]
+    [Authorize]
+    public async Task<ActionResult<object>> GetAdminAccess()
+    {
+        return Ok(new { success = true, isAdmin = await IsCurrentUserAdminAsync() });
+    }
+
+    [HttpGet("admin/users")]
+    [Authorize]
+    public async Task<ActionResult<object>> GetUsersForAdmin()
+    {
+        if (!await IsCurrentUserAdminAsync())
+        {
+            return Forbid();
+        }
+
+        var users = await _context.Users
+            .OrderBy(u => u.Id)
+            .Select(u => new AdminUserResponse
+            {
+                Id = u.Id,
+                Username = u.Username,
+                IsActive = u.IsActive,
+                IsBanned = u.IsBanned,
+                IsWhitelisted = u.IsWhitelisted,
+                LastLoginAt = u.LastLoginAt,
+                CreatedAt = u.CreatedAt
+            })
+            .ToListAsync();
+
+        return Ok(new { success = true, users });
+    }
+
+    [HttpPost("admin/reset-password")]
+    [Authorize]
+    public async Task<ActionResult<AuthResponse>> AdminResetPassword([FromBody] AdminResetPasswordRequest request)
+    {
+        if (!await IsCurrentUserAdminAsync())
+        {
+            return Forbid();
+        }
+
+        if (request.UserId <= 0 || string.IsNullOrWhiteSpace(request.NewPassword))
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректные параметры запроса" });
+        }
+
+        var (isValid, error) = _passwordService.ValidatePasswordStrength(request.NewPassword);
+        if (!isValid)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = error });
+        }
+
+        var targetUser = await _context.Users.FindAsync(request.UserId);
+        if (targetUser == null)
+        {
+            return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
+        }
+
+        targetUser.PasswordHash = _passwordService.HashPassword(request.NewPassword);
+        targetUser.UpdatedAt = DateTime.UtcNow;
+
+        var sessions = await _context.LoginSessions
+            .Where(s => s.UserId == targetUser.Id && !s.IsRevoked)
+            .ToListAsync();
+
+        foreach (var session in sessions)
+        {
+            session.IsRevoked = true;
+        }
+
+        await _context.SaveChangesAsync();
+
+        var adminUserId = GetCurrentUserIdFromClaims();
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        await LogAction(adminUserId, "ADMIN_PASSWORD_RESET", $"TargetUserId: {targetUser.Id}", ip);
+
+        return Ok(new AuthResponse { Success = true, Message = "Пароль пользователя сброшен и все сессии отозваны" });
+    }
+
+    [HttpPost("admin/set-ban")]
+    [Authorize]
+    public async Task<ActionResult<AuthResponse>> AdminSetBan([FromBody] AdminSetBanRequest request)
+    {
+        if (!await IsCurrentUserAdminAsync())
+        {
+            return Forbid();
+        }
+
+        if (request.UserId <= 0)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный UserId" });
+        }
+
+        var targetUser = await _context.Users.FindAsync(request.UserId);
+        if (targetUser == null)
+        {
+            return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
+        }
+
+        targetUser.IsBanned = request.IsBanned;
+        targetUser.BanReason = request.IsBanned ? (request.BanReason?.Trim() ?? "Заблокирован администратором") : null;
+        targetUser.UpdatedAt = DateTime.UtcNow;
+
+        if (request.IsBanned)
+        {
+            var sessions = await _context.LoginSessions
+                .Where(s => s.UserId == targetUser.Id && !s.IsRevoked)
+                .ToListAsync();
+            foreach (var session in sessions)
+            {
+                session.IsRevoked = true;
+            }
+        }
+
+        await _context.SaveChangesAsync();
+
+        var adminUserId = GetCurrentUserIdFromClaims();
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        await LogAction(adminUserId, "ADMIN_SET_BAN", $"TargetUserId: {targetUser.Id}, IsBanned: {request.IsBanned}", ip);
+
+        return Ok(new AuthResponse
+        {
+            Success = true,
+            Message = request.IsBanned ? "Пользователь заблокирован" : "Блокировка снята"
+        });
+    }
+
+    [HttpDelete("admin/users/{userId:int}")]
+    [Authorize]
+    public async Task<ActionResult<AuthResponse>> AdminDeleteUser(int userId)
+    {
+        if (!await IsCurrentUserAdminAsync())
+        {
+            return Forbid();
+        }
+
+        var adminUserId = GetCurrentUserIdFromClaims();
+        if (adminUserId == userId)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Нельзя удалить собственный аккаунт через админ-панель" });
+        }
+
+        var targetUser = await _context.Users.FindAsync(userId);
+        if (targetUser == null)
+        {
+            return NotFound(new AuthResponse { Success = false, Message = "Пользователь не найден" });
+        }
+
+        var sessions = await _context.LoginSessions.Where(s => s.UserId == userId).ToListAsync();
+        var skins = await _context.PlayerSkins.Where(s => s.UserId == userId).ToListAsync();
+        var capes = await _context.PlayerCapes.Where(c => c.UserId == userId).ToListAsync();
+        var logs = await _context.AuditLogs.Where(l => l.UserId == userId).ToListAsync();
+
+        if (sessions.Count > 0) _context.LoginSessions.RemoveRange(sessions);
+        if (skins.Count > 0) _context.PlayerSkins.RemoveRange(skins);
+        if (capes.Count > 0) _context.PlayerCapes.RemoveRange(capes);
+        if (logs.Count > 0) _context.AuditLogs.RemoveRange(logs);
+
+        _context.Users.Remove(targetUser);
+        await _context.SaveChangesAsync();
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        await LogAction(adminUserId, "ADMIN_DELETE_USER", $"TargetUserId: {userId}", ip);
+
+        return Ok(new AuthResponse { Success = true, Message = "Пользователь удален" });
+    }
 }
 
 // Request/Response DTOs
@@ -512,6 +712,30 @@ public class ChangeUsernameRequest
 public class UpdatePlayTimeRequest
 {
     public int MinutesPlayed { get; set; }
+}
+
+public class AdminResetPasswordRequest
+{
+    public int UserId { get; set; }
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class AdminSetBanRequest
+{
+    public int UserId { get; set; }
+    public bool IsBanned { get; set; }
+    public string? BanReason { get; set; }
+}
+
+public class AdminUserResponse
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public bool IsBanned { get; set; }
+    public bool IsWhitelisted { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 public class ProfileResponse

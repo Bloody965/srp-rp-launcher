@@ -428,14 +428,27 @@ public class SkinsController : ControllerBase
     }
 
     [HttpPost("admin/reset-rate-limit/{userId}")]
-    [AllowAnonymous]
+    [Authorize]
     public ActionResult ResetRateLimit(int userId, [FromQuery] string adminKey)
     {
-        // Простая защита admin endpoint
-        var expectedKey = _configuration["AdminKey"] ?? "CHANGE_ME";
-        if (adminKey != expectedKey)
+        // Admin endpoint: requires authenticated user and configured admin key.
+        // Key check is kept for operational compatibility, but no insecure fallback.
+        var expectedKey = _configuration["AdminKey"];
+        if (string.IsNullOrWhiteSpace(expectedKey) || !string.Equals(adminKey, expectedKey, StringComparison.Ordinal))
         {
             return Unauthorized(new { success = false, message = "Invalid admin key" });
+        }
+
+        var callerUserId = GetUserId();
+        var adminUserIds = (_configuration["Admin:UserIds"] ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(v => int.TryParse(v, out var id) ? id : -1)
+            .Where(id => id > 0)
+            .ToHashSet();
+
+        if (callerUserId == null || !adminUserIds.Contains(callerUserId.Value))
+        {
+            return Forbid();
         }
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";

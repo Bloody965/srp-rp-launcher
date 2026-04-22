@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using ApocalypseLauncher.Core.Models;
@@ -14,11 +15,21 @@ public class ApiService
 
     public ApiService(string baseUrl = "http://localhost:5000")
     {
+        var allowInsecureTls = string.Equals(
+            Environment.GetEnvironmentVariable("LAUNCHER_ALLOW_INSECURE_TLS"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
         var handler = new HttpClientHandler
         {
-            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
             AllowAutoRedirect = false
         };
+        if (allowInsecureTls)
+        {
+            // Development-only fallback.
+            handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
+            Console.WriteLine("[ApiService] WARNING: insecure TLS validation is enabled by environment variable.");
+        }
 
         _httpClient = new HttpClient(handler)
         {
@@ -469,6 +480,112 @@ public class ApiService
             return null;
         }
     }
+
+    public async Task<ApiResponse<bool>> GetAdminAccessAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/auth/admin/access");
+            if (!response.IsSuccessStatusCode)
+            {
+                return ApiResponse<bool>.Success(false);
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<AdminAccessResponseDto>();
+            return ApiResponse<bool>.Success(payload?.IsAdmin == true);
+        }
+        catch
+        {
+            return ApiResponse<bool>.Success(false);
+        }
+    }
+
+    public async Task<ApiResponse<AdminUserInfo[]>> GetAdminUsersAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/auth/admin/users");
+            if (!response.IsSuccessStatusCode)
+            {
+                return ApiResponse<AdminUserInfo[]>.Failure("Нет доступа к списку пользователей");
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<AdminUsersResponseDto>();
+            var users = payload?.Users?.Select(u => new AdminUserInfo
+            {
+                Id = u.Id,
+                Username = u.Username,
+                IsActive = u.IsActive,
+                IsBanned = u.IsBanned,
+                IsWhitelisted = u.IsWhitelisted,
+                CreatedAt = u.CreatedAt,
+                LastLoginAt = u.LastLoginAt
+            }).ToArray() ?? Array.Empty<AdminUserInfo>();
+
+            return ApiResponse<AdminUserInfo[]>.Success(users);
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<AdminUserInfo[]>.Failure($"Ошибка: {ex.Message}");
+        }
+    }
+
+    public async Task<ApiResponse<string>> AdminResetUserPasswordAsync(int userId, string newPassword)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/admin/reset-password", new { userId, newPassword });
+            var result = await ReadAuthResponseAsync(response);
+            if (response.IsSuccessStatusCode && result?.Success == true)
+            {
+                return ApiResponse<string>.Success(result.Message ?? "Пароль сброшен");
+            }
+
+            return ApiResponse<string>.Failure(GetAuthMessage(result, "Не удалось сбросить пароль"));
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure(GetConnectionErrorMessage(ex));
+        }
+    }
+
+    public async Task<ApiResponse<string>> AdminSetBanAsync(int userId, bool isBanned, string? banReason = null)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/auth/admin/set-ban", new { userId, isBanned, banReason });
+            var result = await ReadAuthResponseAsync(response);
+            if (response.IsSuccessStatusCode && result?.Success == true)
+            {
+                return ApiResponse<string>.Success(result.Message ?? "Операция выполнена");
+            }
+
+            return ApiResponse<string>.Failure(GetAuthMessage(result, "Не удалось изменить статус блокировки"));
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure(GetConnectionErrorMessage(ex));
+        }
+    }
+
+    public async Task<ApiResponse<string>> AdminDeleteUserAsync(int userId)
+    {
+        try
+        {
+            var response = await _httpClient.DeleteAsync($"/api/auth/admin/users/{userId}");
+            var result = await ReadAuthResponseAsync(response);
+            if (response.IsSuccessStatusCode && result?.Success == true)
+            {
+                return ApiResponse<string>.Success(result.Message ?? "Пользователь удален");
+            }
+
+            return ApiResponse<string>.Failure(GetAuthMessage(result, "Не удалось удалить пользователя"));
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<string>.Failure(GetConnectionErrorMessage(ex));
+        }
+    }
 }
 
 // DTOs
@@ -496,6 +613,29 @@ public class ProfileResponseDto
     public string Username { get; set; } = "";
     public string Email { get; set; } = "";
     public int PlayTimeMinutes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+}
+
+public class AdminAccessResponseDto
+{
+    public bool Success { get; set; }
+    public bool IsAdmin { get; set; }
+}
+
+public class AdminUsersResponseDto
+{
+    public bool Success { get; set; }
+    public AdminUserDto[]? Users { get; set; }
+}
+
+public class AdminUserDto
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = "";
+    public bool IsActive { get; set; }
+    public bool IsBanned { get; set; }
+    public bool IsWhitelisted { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }
@@ -545,6 +685,17 @@ public class ProfileInfo
     public string Username { get; set; } = "";
     public string Email { get; set; } = "";
     public int PlayTimeMinutes { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+}
+
+public class AdminUserInfo
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = "";
+    public bool IsActive { get; set; }
+    public bool IsBanned { get; set; }
+    public bool IsWhitelisted { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
 }
