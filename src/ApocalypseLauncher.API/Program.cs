@@ -14,12 +14,26 @@ var builder = WebApplication.CreateBuilder(args);
 
 var isDevelopment = builder.Environment.IsDevelopment();
 var railwayPort = Environment.GetEnvironmentVariable("PORT");
+var listenPorts = new List<string>();
 if (!string.IsNullOrWhiteSpace(railwayPort))
 {
-    // Railway can route traffic to the dynamic PORT env variable.
-    builder.WebHost.UseUrls($"http://0.0.0.0:{railwayPort}");
+    listenPorts.Add(railwayPort);
     Console.WriteLine($"[Startup] Using Railway PORT={railwayPort}");
 }
+
+// Some Railway network paths still probe/route :5000 depending on service config.
+// Listen on common ports to avoid edge 502 when only one port is bound.
+listenPorts.Add("5000");
+listenPorts.Add("8080");
+
+var normalizedPorts = listenPorts
+    .Where(p => !string.IsNullOrWhiteSpace(p))
+    .Distinct(StringComparer.Ordinal)
+    .ToArray();
+
+var urls = string.Join(";", normalizedPorts.Select(p => $"http://0.0.0.0:{p}"));
+builder.WebHost.UseUrls(urls);
+Console.WriteLine($"[Startup] Binding URLs: {urls}");
 
 // Читаем JWT Secret из разных источников (для совместимости с Railway)
 var jwtSecret = builder.Configuration["Jwt:SecretKey"]
