@@ -13,6 +13,13 @@ using System.Security.Claims;
 var builder = WebApplication.CreateBuilder(args);
 
 var isDevelopment = builder.Environment.IsDevelopment();
+var railwayPort = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrWhiteSpace(railwayPort))
+{
+    // Railway can route traffic to the dynamic PORT env variable.
+    builder.WebHost.UseUrls($"http://0.0.0.0:{railwayPort}");
+    Console.WriteLine($"[Startup] Using Railway PORT={railwayPort}");
+}
 
 // Читаем JWT Secret из разных источников (для совместимости с Railway)
 var jwtSecret = builder.Configuration["Jwt:SecretKey"]
