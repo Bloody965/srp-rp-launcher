@@ -305,10 +305,9 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseForwardedHeaders();
-if (!isDevelopment)
-{
-    app.UseHttpsRedirection();
-}
+// Railway terminates TLS at the edge; forcing HTTPS redirect inside the container
+// can break internal HTTP healthchecks and keep deploys in "service unavailable".
+// Keep HTTP inside container and HTTPS externally at the proxy.
 
 // Явный preflight для /api/* до остального конвейера — устраняет «нет ACAO» при OPTIONS (JWT/порядок middleware).
 app.Use(async (ctx, next) =>
