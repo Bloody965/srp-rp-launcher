@@ -78,6 +78,30 @@ public class ApiService
             : "Не удалось связаться с сервером. Проверьте интернет и попробуйте ещё раз.";
     }
 
+    private static string NormalizeWebHandoffCode(string? handoffCode)
+    {
+        if (string.IsNullOrWhiteSpace(handoffCode))
+        {
+            return string.Empty;
+        }
+
+        var buffer = new System.Text.StringBuilder(handoffCode.Length);
+        foreach (var ch in handoffCode.Trim().Trim('"', '\'', '`'))
+        {
+            if (char.IsWhiteSpace(ch) || char.IsControl(ch))
+            {
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(ch) || ch == '-' || ch == '_')
+            {
+                buffer.Append(ch);
+            }
+        }
+
+        return buffer.ToString();
+    }
+
     public async Task<ApiResponse<AuthResult>> RegisterAsync(string username, string password)
     {
         try
@@ -161,7 +185,7 @@ public class ApiService
     {
         try
         {
-            var trimmed = (handoffCode ?? string.Empty).Trim();
+            var trimmed = NormalizeWebHandoffCode(handoffCode);
             var response = await _httpClient.PostAsJsonAsync("/api/auth/web-handoff/redeem", new { handoffCode = trimmed });
             var result = await ReadAuthResponseAsync(response);
 

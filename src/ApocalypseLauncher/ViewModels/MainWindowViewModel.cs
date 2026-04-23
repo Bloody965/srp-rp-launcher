@@ -1134,6 +1134,117 @@ public class MainWindowViewModel : ViewModelBase
 
     private static string NormalizeRecoveryCode(string? recoveryCode) => recoveryCode?.Trim().ToUpperInvariant() ?? string.Empty;
 
+    private static string BuildApiAbsoluteUrl(string? pathOrUrl)
+    {
+        var value = (pathOrUrl ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
+        {
+            return absolute.ToString();
+        }
+
+        var baseUrl = ApiBaseUrl.TrimEnd('/');
+        if (!value.StartsWith('/'))
+        {
+            value = "/" + value;
+        }
+
+        return $"{baseUrl}{value}";
+    }
+
+    private static string NormalizeWebHandoffCode(string? rawCode)
+    {
+        if (string.IsNullOrWhiteSpace(rawCode))
+        {
+            return string.Empty;
+        }
+
+        var candidate = rawCode.Trim();
+        if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri))
+        {
+            var fromQuery = TryExtractCodeFromQuery(uri.Query);
+            if (!string.IsNullOrWhiteSpace(fromQuery))
+            {
+                candidate = fromQuery;
+            }
+        }
+        else
+        {
+            var fromInlineQuery = TryExtractCodeFromInlineQuery(candidate);
+            if (!string.IsNullOrWhiteSpace(fromInlineQuery))
+            {
+                candidate = fromInlineQuery;
+            }
+        }
+
+        candidate = candidate.Trim().Trim('"', '\'', '`');
+
+        var buffer = new StringBuilder(candidate.Length);
+        foreach (var ch in candidate)
+        {
+            if (char.IsWhiteSpace(ch) || char.IsControl(ch))
+            {
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(ch) || ch == '-' || ch == '_')
+            {
+                buffer.Append(ch);
+            }
+        }
+
+        return buffer.ToString();
+    }
+
+    private static string TryExtractCodeFromInlineQuery(string input)
+    {
+        var qMarkIndex = input.IndexOf('?');
+        if (qMarkIndex < 0 || qMarkIndex >= input.Length - 1)
+        {
+            return string.Empty;
+        }
+
+        return TryExtractCodeFromQuery(input[(qMarkIndex + 1)..]);
+    }
+
+    private static string TryExtractCodeFromQuery(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return string.Empty;
+        }
+
+        var normalizedQuery = query.TrimStart('?', '#');
+        var segments = normalizedQuery.Split('&', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var segment in segments)
+        {
+            var separator = segment.IndexOf('=');
+            if (separator <= 0 || separator >= segment.Length - 1)
+            {
+                continue;
+            }
+
+            var key = segment[..separator].Trim();
+            if (!key.Equals("handoffCode", StringComparison.OrdinalIgnoreCase) &&
+                !key.Equals("code", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = segment[(separator + 1)..];
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return Uri.UnescapeDataString(value).Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static string BuildRecoveryCodeWarning(string recoveryCode)
     {
         return $"✅ РЕГИСТРАЦИЯ УСПЕШНА!\n\n⚠️ СОХРАНИТЕ КОД ВОССТАНОВЛЕНИЯ НИЖЕ.\nОн нужен для сброса пароля и больше не будет показан.\nМы не отправляем его на почту.\nСкопируйте код прямо сейчас (Ctrl+C).\n\nКОД: {recoveryCode}";
@@ -2337,11 +2448,12 @@ public class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var code = (WebHandoffCode ?? string.Empty).Trim();
+        var code = NormalizeWebHandoffCode(WebHandoffCode);
+        WebHandoffCode = code;
         if (string.IsNullOrWhiteSpace(code) || code.Length < 12)
         {
             ClearAuthError();
-            SetAuthError("Вставьте код с сайта (профиль → «Код для лаунчера»).", "Проверьте данные");
+            SetAuthError("Вставьте код с сайта (профиль → «Код для лаунчера»). Можно вставить и полную ссылку — код извлечётся автоматически.", "Проверьте данные");
             return;
         }
 
@@ -2743,8 +2855,14 @@ public class MainWindowViewModel : ViewModelBase
             var result = await _apiService.GetCurrentSkinAsync();
             if (result.IsSuccess && result.Data != null)
             {
-                // Скачиваем скин по URL
-                var skinBytes = await _httpClient.GetByteArrayAsync(result.Data.DownloadUrl);
+                // Принудительно обходим клиентский/прокси-кэш, чтобы после перезахода брать актуальный скин.
+                var skinUrl = BuildApiAbsoluteUrl(result.Data.DownloadUrl);
+                using var request = new HttpRequestMessage(HttpMethod.Get, skinUrl);
+                request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache, no-store, max-age=0");
+                request.Headers.TryAddWithoutValidation("Pragma", "no-cache");
+                using var response = await _httpClient.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                var skinBytes = await response.Content.ReadAsByteArrayAsync();
 
                 // Сохраняем локально для кэша
                 var skinDir = Path.GetDirectoryName(localSkinPath);
@@ -3115,7 +3233,9 @@ public class MainWindowViewModel : ViewModelBase
             }
             else
             {
-                SkinStatus = "Ошибка загрузки скина";
+                SkinStatus = string.IsNullOrWhiteSpace(_skinService.LastErrorMessage)
+                    ? "Ошибка загрузки скина"
+                    : $"Ошибка загрузки скина: {_skinService.LastErrorMessage}";
             }
         }
         catch (Exception ex)
@@ -3146,6 +3266,12 @@ public class MainWindowViewModel : ViewModelBase
                 CurrentSkinPath = localSkinPath;
                 await LoadSkinPreviewAsync(localSkinPath);
                 SkinStatus = $"Скин загружен ({skinType})";
+            }
+            else
+            {
+                SkinStatus = string.IsNullOrWhiteSpace(_skinService.LastErrorMessage)
+                    ? "Ошибка загрузки скина"
+                    : $"Ошибка загрузки скина: {_skinService.LastErrorMessage}";
             }
         }
         catch (Exception ex)

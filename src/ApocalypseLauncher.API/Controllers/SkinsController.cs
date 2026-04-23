@@ -127,7 +127,7 @@ public class SkinsController : ControllerBase
                 skin = new
                 {
                     skinType = playerSkin.SkinType,
-                    downloadUrl = $"/api/skins/download/{userId}",
+                    downloadUrl = $"/api/skins/download/{userId}?v={playerSkin.FileHash}",
                     fileHash = playerSkin.FileHash,
                     uploadedAt = playerSkin.UploadedAt
                 }
@@ -164,7 +164,7 @@ public class SkinsController : ControllerBase
             skin = new
             {
                 skinType = skin.SkinType,
-                downloadUrl = $"/api/skins/download/{userId}",
+                downloadUrl = $"/api/skins/download/{userId}?v={skin.FileHash}",
                 fileHash = skin.FileHash,
                 uploadedAt = skin.UploadedAt
             }
@@ -191,7 +191,7 @@ public class SkinsController : ControllerBase
             skin = new
             {
                 skinType = skin.SkinType,
-                downloadUrl = $"/api/skins/download/{userId}",
+                downloadUrl = $"/api/skins/download/{userId}?v={skin.FileHash}",
                 fileHash = skin.FileHash,
                 uploadedAt = skin.UploadedAt
             }
@@ -220,7 +220,9 @@ public class SkinsController : ControllerBase
 
         var etag = $"\"{skin.FileHash}\"";
         Response.Headers.ETag = etag;
-        Response.Headers.CacheControl = "public, max-age=3600";
+        // Скин может меняться в любой момент, поэтому заставляем клиентов ре-валидировать кеш.
+        Response.Headers.CacheControl = "private, no-cache, must-revalidate";
+        Response.Headers.Pragma = "no-cache";
 
         var ifNoneMatch = Request.Headers.IfNoneMatch.ToString();
         if (!string.IsNullOrWhiteSpace(ifNoneMatch) && ifNoneMatch.Contains(etag, StringComparison.Ordinal))

@@ -47,12 +47,23 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (request == null)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный запрос" });
+        }
+
+        var username = (request.Username ?? string.Empty).Trim();
+        var password = request.Password ?? string.Empty;
+        if (username.Length > 32 || password.Length > 256)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Слишком длинные данные запроса" });
+        }
 
         // Защита от SQL инъекций
-        if (ValidationService.ContainsSqlInjection(request.Username) ||
-            ValidationService.ContainsSqlInjection(request.Password))
+        if (ValidationService.ContainsSqlInjection(username) ||
+            ValidationService.ContainsSqlInjection(password))
         {
-            await LogAction(null, "REGISTER_SQL_INJECTION_ATTEMPT", $"Username: {request.Username}", ip);
+            await LogAction(null, "REGISTER_SQL_INJECTION_ATTEMPT", $"Username: {username}", ip);
             return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
         }
 
@@ -68,19 +79,19 @@ public class AuthController : ControllerBase
         }
 
         // Валидация
-        if (!ValidationService.IsValidUsername(request.Username))
+        if (!ValidationService.IsValidUsername(username))
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Имя пользователя должно быть от 3 до 16 символов (только буквы, цифры и _)" });
         }
 
-        var (isValid, error) = _passwordService.ValidatePasswordStrength(request.Password);
+        var (isValid, error) = _passwordService.ValidatePasswordStrength(password);
         if (!isValid)
         {
             return BadRequest(new AuthResponse { Success = false, Message = error });
         }
 
         // Проверка существования пользователя
-        if (await _context.Users.AnyAsync(u => u.Username.ToLower() == request.Username.ToLower()))
+        if (await _context.Users.AnyAsync(u => u.Username.ToLower() == username.ToLower()))
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Пользователь с таким именем уже существует" });
         }
@@ -91,11 +102,11 @@ public class AuthController : ControllerBase
         // Создание пользователя
         var user = new User
         {
-            Username = request.Username,
+            Username = username,
             Email = null, // Не храним email
-            PasswordHash = _passwordService.HashPassword(request.Password),
+            PasswordHash = _passwordService.HashPassword(password),
             RecoveryCode = _passwordService.HashRecoveryCode(recoveryCode),
-            MinecraftUUID = _passwordService.GenerateMinecraftUUID(request.Username),
+            MinecraftUUID = _passwordService.GenerateMinecraftUUID(username),
             CreatedAt = DateTime.UtcNow,
             IsActive = true,
             IsWhitelisted = false
@@ -145,6 +156,17 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (request == null)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный запрос" });
+        }
+
+        var username = (request.Username ?? string.Empty).Trim();
+        var password = request.Password ?? string.Empty;
+        if (username.Length == 0 || password.Length == 0 || username.Length > 32 || password.Length > 256)
+        {
+            return Unauthorized(new AuthResponse { Success = false, Message = "Неверное имя пользователя или пароль" });
+        }
 
         // Rate limiting - 5 попыток входа в 15 минут
         if (_rateLimitService.IsRateLimited($"login:{ip}", 5, TimeSpan.FromMinutes(15)))
@@ -159,11 +181,11 @@ public class AuthController : ControllerBase
 
         // Поиск пользователя
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower());
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
 
-        if (user == null || !_passwordService.VerifyPassword(request.Password, user.PasswordHash))
+        if (user == null || !_passwordService.VerifyPassword(password, user.PasswordHash))
         {
-            await LogAction(null, "LOGIN_FAILED", $"Username: {request.Username}, IP: {ip}", ip);
+            await LogAction(null, "LOGIN_FAILED", $"Username: {username}, IP: {ip}", ip);
             return Unauthorized(new AuthResponse
             {
                 Success = false,
@@ -449,13 +471,25 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponse>> ResetPassword([FromBody] ResetPasswordRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (request == null)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный запрос" });
+        }
+
+        var username = (request.Username ?? string.Empty).Trim();
+        var recoveryCode = (request.RecoveryCode ?? string.Empty).Trim();
+        var newPassword = request.NewPassword ?? string.Empty;
+        if (username.Length > 32 || recoveryCode.Length > 128 || newPassword.Length > 256)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Слишком длинные данные запроса" });
+        }
 
         // Защита от SQL инъекций
-        if (ValidationService.ContainsSqlInjection(request.Username) ||
-            ValidationService.ContainsSqlInjection(request.RecoveryCode) ||
-            ValidationService.ContainsSqlInjection(request.NewPassword))
+        if (ValidationService.ContainsSqlInjection(username) ||
+            ValidationService.ContainsSqlInjection(recoveryCode) ||
+            ValidationService.ContainsSqlInjection(newPassword))
         {
-            await LogAction(null, "RESET_PASSWORD_SQL_INJECTION", $"Username: {request.Username}", ip);
+            await LogAction(null, "RESET_PASSWORD_SQL_INJECTION", $"Username: {username}", ip);
             return BadRequest(new AuthResponse { Success = false, Message = "Обнаружена попытка SQL инъекции" });
         }
 
@@ -471,19 +505,19 @@ public class AuthController : ControllerBase
         }
 
         // Валидация username
-        if (!ValidationService.IsValidUsername(request.Username))
+        if (!ValidationService.IsValidUsername(username))
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Неверное имя пользователя" });
         }
 
         // Валидация recovery code
-        if (string.IsNullOrWhiteSpace(request.RecoveryCode) || request.RecoveryCode.Length < 16)
+        if (string.IsNullOrWhiteSpace(recoveryCode) || recoveryCode.Length < 16)
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Введите код восстановления (16 символов)" });
         }
 
         // Валидация нового пароля
-        var (isValid, error) = _passwordService.ValidatePasswordStrength(request.NewPassword);
+        var (isValid, error) = _passwordService.ValidatePasswordStrength(newPassword);
         if (!isValid)
         {
             return BadRequest(new AuthResponse { Success = false, Message = error });
@@ -491,11 +525,11 @@ public class AuthController : ControllerBase
 
         // Поиск пользователя по username и recovery code
         var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower());
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
 
-        if (user == null || !_passwordService.VerifyRecoveryCode(request.RecoveryCode, user.RecoveryCode))
+        if (user == null || !_passwordService.VerifyRecoveryCode(recoveryCode, user.RecoveryCode))
         {
-            await LogAction(null, "RESET_PASSWORD_INVALID", $"Username: {request.Username}, IP: {ip}", ip);
+            await LogAction(null, "RESET_PASSWORD_INVALID", $"Username: {username}, IP: {ip}", ip);
             return BadRequest(new AuthResponse
             {
                 Success = false,
@@ -504,7 +538,7 @@ public class AuthController : ControllerBase
         }
 
         // Обновление пароля
-        user.PasswordHash = _passwordService.HashPassword(request.NewPassword);
+        user.PasswordHash = _passwordService.HashPassword(newPassword);
         user.UpdatedAt = DateTime.UtcNow;
         user.IsAdminPasswordResetRequired = false;
         user.AdminResetCodeHash = null;
@@ -537,18 +571,30 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<AuthResponse>> ResetPasswordByAdmin([FromBody] ResetPasswordByAdminRequest request)
     {
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        if (request == null)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Некорректный запрос" });
+        }
 
-        if (string.IsNullOrWhiteSpace(request.Username) ||
-            string.IsNullOrWhiteSpace(request.ResetCode) ||
-            string.IsNullOrWhiteSpace(request.NewPassword))
+        var username = (request.Username ?? string.Empty).Trim();
+        var resetCode = (request.ResetCode ?? string.Empty).Trim();
+        var newPassword = request.NewPassword ?? string.Empty;
+        if (username.Length > 32 || resetCode.Length > 128 || newPassword.Length > 256)
+        {
+            return BadRequest(new AuthResponse { Success = false, Message = "Слишком длинные данные запроса" });
+        }
+
+        if (string.IsNullOrWhiteSpace(username) ||
+            string.IsNullOrWhiteSpace(resetCode) ||
+            string.IsNullOrWhiteSpace(newPassword))
         {
             return BadRequest(new AuthResponse { Success = false, Message = "Заполните все поля" });
         }
 
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.ToLower());
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == username.ToLower());
         if (user == null)
         {
-            await LogAction(null, "FORCED_RESET_INVALID_CREDENTIALS", $"Username: {request.Username}, IP: {ip}", ip);
+            await LogAction(null, "FORCED_RESET_INVALID_CREDENTIALS", $"Username: {username}, IP: {ip}", ip);
             return Unauthorized(new AuthResponse { Success = false, Message = "Неверное имя пользователя или код сброса" });
         }
 
@@ -557,7 +603,7 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse { Success = false, Message = "Для аккаунта не требуется принудительная смена пароля" });
         }
 
-        var providedCodeHash = HashText(request.ResetCode.Trim().ToUpperInvariant());
+        var providedCodeHash = HashText(resetCode.ToUpperInvariant());
         if (string.IsNullOrWhiteSpace(user.AdminResetCodeHash) ||
             !string.Equals(user.AdminResetCodeHash, providedCodeHash, StringComparison.Ordinal) ||
             user.AdminResetCodeExpiresAt == null ||
@@ -567,13 +613,13 @@ public class AuthController : ControllerBase
             return Unauthorized(new AuthResponse { Success = false, Message = "Неверный или просроченный код сброса" });
         }
 
-        var (isValid, error) = _passwordService.ValidatePasswordStrength(request.NewPassword);
+        var (isValid, error) = _passwordService.ValidatePasswordStrength(newPassword);
         if (!isValid)
         {
             return BadRequest(new AuthResponse { Success = false, Message = error });
         }
 
-        user.PasswordHash = _passwordService.HashPassword(request.NewPassword);
+        user.PasswordHash = _passwordService.HashPassword(newPassword);
         user.UpdatedAt = DateTime.UtcNow;
         user.IsAdminPasswordResetRequired = false;
         user.AdminResetCodeHash = null;

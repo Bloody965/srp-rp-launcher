@@ -13,6 +13,7 @@ public class SkinService
     private readonly ApiService _apiService;
     private readonly string _skinsDirectory;
     private readonly string _capesDirectory;
+    public string? LastErrorMessage { get; private set; }
 
     public event EventHandler<string>? StatusChanged;
 
@@ -33,11 +34,13 @@ public class SkinService
     {
         try
         {
+            LastErrorMessage = null;
             StatusChanged?.Invoke(this, "Проверка файла скина...");
 
             // Валидация файла
             if (!ValidateSkinFile(filePath, out var error))
             {
+                LastErrorMessage = error;
                 StatusChanged?.Invoke(this, $"Ошибка: {error}");
                 return false;
             }
@@ -57,12 +60,14 @@ public class SkinService
             }
             else
             {
-                StatusChanged?.Invoke(this, $"Ошибка: {result.ErrorMessage}");
+                LastErrorMessage = result.ErrorMessage ?? "Ошибка загрузки скина";
+                StatusChanged?.Invoke(this, $"Ошибка: {LastErrorMessage}");
                 return false;
             }
         }
         catch (Exception ex)
         {
+            LastErrorMessage = ex.Message;
             StatusChanged?.Invoke(this, $"Ошибка: {ex.Message}");
             Console.WriteLine($"[SkinService] Upload error: {ex.Message}");
             return false;

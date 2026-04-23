@@ -338,8 +338,21 @@ public class GameLauncher
             Log($"WARNING: Libraries directory not found: {librariesPath}");
         }
 
-        // Для Forge НЕ добавляем client JAR - Forge сам загружает Minecraft через свою систему
-        // Vanilla JAR и client JAR уже исключены из списка выше
+        // Для vanilla обязательно добавляем version JAR, иначе main class не будет найден.
+        var isForge = options.MainClass == "cpw.mods.bootstraplauncher.BootstrapLauncher";
+        if (!isForge)
+        {
+            var vanillaJarPath = Path.Combine(options.GameDirectory, "versions", options.Version, $"{options.Version}.jar");
+            if (File.Exists(vanillaJarPath))
+            {
+                classpathEntries.Add(vanillaJarPath);
+                Log($"Added vanilla version JAR to classpath: {vanillaJarPath}");
+            }
+            else
+            {
+                Log($"WARNING: Vanilla version JAR not found: {vanillaJarPath}");
+            }
+        }
 
         if (classpathEntries.Count == 0)
         {
