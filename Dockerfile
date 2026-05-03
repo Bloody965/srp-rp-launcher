@@ -4,18 +4,15 @@ EXPOSE 5000
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
-COPY ["src/ApocalypseLauncher.API/ApocalypseLauncher.API.csproj", "ApocalypseLauncher.API/"]
-RUN dotnet restore "ApocalypseLauncher.API/ApocalypseLauncher.API.csproj"
-COPY src/ApocalypseLauncher.API/ ApocalypseLauncher.API/
-WORKDIR "/src/ApocalypseLauncher.API"
-RUN dotnet build "ApocalypseLauncher.API.csproj" -c Release -o /app/build
-
-FROM build AS publish
-RUN dotnet publish "ApocalypseLauncher.API.csproj" -c Release -o /app/publish
+COPY ["src/ApocalypseLauncher.API/ApocalypseLauncher.API.csproj", "src/ApocalypseLauncher.API/"]
+RUN dotnet restore "src/ApocalypseLauncher.API/ApocalypseLauncher.API.csproj"
+COPY src/ApocalypseLauncher.API/ src/ApocalypseLauncher.API/
+WORKDIR "/src/src/ApocalypseLauncher.API"
+RUN dotnet publish "ApocalypseLauncher.API.csproj" -c Release -o /app/publish --no-restore /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+COPY --from=build /app/publish .
 
 # Создаём папки для данных
 RUN mkdir -p /app/data /app/modpacks
