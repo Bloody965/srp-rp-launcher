@@ -39,9 +39,11 @@ public class SimpleModpackController : ControllerBase
 
             // Preferred mode: serve version and URL from your infrastructure config.
             var configuredVersion = _configuration["Modpack:Version"];
+            var configuredDisplayVersion = _configuration["Modpack:DisplayVersion"];
             var configuredDownloadUrl = _configuration["Modpack:DownloadUrl"];
             var configuredFileSize = _configuration.GetValue<long?>("Modpack:FileSizeBytes");
             var configuredChangelog = _configuration["Modpack:Changelog"];
+            var configuredDeltaManifestUrl = _configuration["Modpack:DeltaManifestUrl"];
 
             if (!string.IsNullOrWhiteSpace(configuredVersion) &&
                 !string.IsNullOrWhiteSpace(configuredDownloadUrl))
@@ -50,9 +52,11 @@ public class SimpleModpackController : ControllerBase
                 return Ok(new
                 {
                     version = configuredVersion.Trim(),
+                    displayVersion = string.IsNullOrWhiteSpace(configuredDisplayVersion) ? null : configuredDisplayVersion.Trim(),
                     downloadUrl = configuredDownloadUrl.Trim(),
                     sha256Hash,
                     fileSizeBytes = configuredFileSize ?? 0L,
+                    deltaManifestUrl = string.IsNullOrWhiteSpace(configuredDeltaManifestUrl) ? null : configuredDeltaManifestUrl.Trim(),
                     changelog = string.IsNullOrWhiteSpace(configuredChangelog)
                         ? "Сборка модов для SRP-RP сервера"
                         : configuredChangelog.Trim()
@@ -81,9 +85,11 @@ public class SimpleModpackController : ControllerBase
                     return Ok(new
                     {
                         version = releaseTag.Replace("modpack-v", ""),
+                        displayVersion = string.IsNullOrWhiteSpace(configuredDisplayVersion) ? null : configuredDisplayVersion.Trim(),
                         downloadUrl,
                         sha256Hash,
                         fileSizeBytes = sizeBytes,
+                        deltaManifestUrl = string.IsNullOrWhiteSpace(configuredDeltaManifestUrl) ? null : configuredDeltaManifestUrl.Trim(),
                         changelog = "Сборка модов для SRP-RP сервера"
                     });
                 }

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Newtonsoft.Json.Linq;
 using ApocalypseLauncher.Core;
 using ApocalypseLauncher.Core.Models;
 
@@ -155,41 +156,47 @@ public class GameLauncher
         {
             Log("Adding Forge-specific JVM arguments...");
 
-            // Java module system opens - критически важно для Forge!
-            args.Add("--add-opens");
-            args.Add("java.base/java.util.jar=cpw.mods.securejarhandler");
-            args.Add("--add-opens");
-            args.Add("java.base/java.lang.invoke=cpw.mods.securejarhandler");
-            args.Add("--add-exports");
-            args.Add("java.base/sun.security.util=cpw.mods.securejarhandler");
-            args.Add("--add-exports");
-            args.Add("jdk.naming.dns/com.sun.jndi.dns=java.naming");
+            var forgeVersionJsonPath = Path.Combine(options.GameDirectory, "versions", options.Version, $"{options.Version}.json");
+            if (!TryAppendForgeJvmArgumentsFromVersionJson(forgeVersionJsonPath, options, args))
+            {
+                Log("WARNING: Forge version.json JVM args not found/parsed; using legacy hardcoded Forge JVM args");
 
-            // Forge system properties
-            args.Add("-Djava.net.preferIPv6Addresses=system");
-            args.Add("-Dforge.logging.console.level=info");
-            args.Add("-Dforge.logging.markers=REGISTRIES");
-            args.Add($"-DignoreList=bootstraplauncher,securejarhandler,asm-commons,asm-util,asm-analysis,asm-tree,asm,JarJarFileSystems,client-extra,fmlcore,javafmllanguage,lowcodelanguage,mclanguage,forge-,{options.Version}.jar");
-            args.Add("-DmergeModules=jna-5.10.0.jar,jna-platform-5.10.0.jar");
-            args.Add("-DlibraryDirectory=" + options.LibrariesDirectory);
+                // Java module system opens - критически важно для Forge!
+                args.Add("--add-opens");
+                args.Add("java.base/java.util.jar=cpw.mods.securejarhandler");
+                args.Add("--add-opens");
+                args.Add("java.base/java.lang.invoke=cpw.mods.securejarhandler");
+                args.Add("--add-exports");
+                args.Add("java.base/sun.security.util=cpw.mods.securejarhandler");
+                args.Add("--add-exports");
+                args.Add("jdk.naming.dns/com.sun.jndi.dns=java.naming");
 
-            // КРИТИЧЕСКИ ВАЖНО: Module path для модульных JAR (ASM, bootstraplauncher и т.д.)
-            var modulePath = string.Join(Path.PathSeparator.ToString(),
-                Path.Combine(options.LibrariesDirectory, "cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar"),
-                Path.Combine(options.LibrariesDirectory, "cpw/mods/securejarhandler/2.1.10/securejarhandler-2.1.10.jar"),
-                Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-commons/9.7/asm-commons-9.7.jar"),
-                Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar"),
-                Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-analysis/9.7/asm-analysis-9.7.jar"),
-                Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-tree/9.7/asm-tree-9.7.jar"),
-                Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm/9.7/asm-9.7.jar"),
-                Path.Combine(options.LibrariesDirectory, "net/minecraftforge/JarJarFileSystems/0.3.19/JarJarFileSystems-0.3.19.jar")
-            );
-            args.Add("-p");
-            args.Add(modulePath);
+                // Forge system properties
+                args.Add("-Djava.net.preferIPv6Addresses=system");
+                args.Add("-Dforge.logging.console.level=info");
+                args.Add("-Dforge.logging.markers=REGISTRIES");
+                args.Add($"-DignoreList=bootstraplauncher,securejarhandler,asm-commons,asm-util,asm-analysis,asm-tree,asm,JarJarFileSystems,client-extra,fmlcore,javafmllanguage,lowcodelanguage,mclanguage,forge-,{options.Version}.jar");
+                args.Add("-DmergeModules=jna-5.10.0.jar,jna-platform-5.10.0.jar");
+                args.Add("-DlibraryDirectory=" + options.LibrariesDirectory);
 
-            // Добавляем все модули из module path
-            args.Add("--add-modules");
-            args.Add("ALL-MODULE-PATH");
+                // КРИТИЧЕСКИ ВАЖНО: Module path для модульных JAR (ASM, bootstraplauncher и т.д.)
+                var modulePath = string.Join(Path.PathSeparator.ToString(),
+                    Path.Combine(options.LibrariesDirectory, "cpw/mods/bootstraplauncher/1.1.2/bootstraplauncher-1.1.2.jar"),
+                    Path.Combine(options.LibrariesDirectory, "cpw/mods/securejarhandler/2.1.10/securejarhandler-2.1.10.jar"),
+                    Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-commons/9.7/asm-commons-9.7.jar"),
+                    Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-util/9.7/asm-util-9.7.jar"),
+                    Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-analysis/9.7/asm-analysis-9.7.jar"),
+                    Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm-tree/9.7/asm-tree-9.7.jar"),
+                    Path.Combine(options.LibrariesDirectory, "org/ow2/asm/asm/9.7/asm-9.7.jar"),
+                    Path.Combine(options.LibrariesDirectory, "net/minecraftforge/JarJarFileSystems/0.3.19/JarJarFileSystems-0.3.19.jar")
+                );
+                args.Add("-p");
+                args.Add(modulePath);
+
+                // Добавляем все модули из module path
+                args.Add("--add-modules");
+                args.Add("ALL-MODULE-PATH");
+            }
         }
 
         // Нативные библиотеки
@@ -214,16 +221,22 @@ public class GameLauncher
         // Для Forge нужны специальные аргументы
         if (isForge)
         {
-            args.Add("--launchTarget");
-            args.Add("forgeclient");
-            args.Add("--fml.forgeVersion");
-            args.Add("47.3.0");
-            args.Add("--fml.mcVersion");
-            args.Add("1.20.1");
-            args.Add("--fml.forgeGroup");
-            args.Add("net.minecraftforge");
-            args.Add("--fml.mcpVersion");
-            args.Add("20230612.114412");
+            if (!TryAppendForgeGameArgumentsFromVersionJson(options, args))
+            {
+                var forgeVersionArg = ExtractForgeVersion(options.Version) ?? "47.4.0";
+                var mcVersionArg = ExtractMinecraftVersion(options.Version) ?? "1.20.1";
+
+                args.Add("--launchTarget");
+                args.Add("forgeclient");
+                args.Add("--fml.forgeVersion");
+                args.Add(forgeVersionArg);
+                args.Add("--fml.mcVersion");
+                args.Add(mcVersionArg);
+                args.Add("--fml.forgeGroup");
+                args.Add("net.minecraftforge");
+                args.Add("--fml.mcpVersion");
+                args.Add("20230612.114412");
+            }
         }
 
         args.Add("--username");
@@ -320,36 +333,39 @@ public class GameLauncher
 
         Log("Building classpath...");
 
-        // Список JAR которые НЕ должны быть в classpath (они в module path или не нужны)
-        var excludedJars = new HashSet<string>
-        {
-            "bootstraplauncher-1.1.2.jar",
-            "securejarhandler-2.1.10.jar",
-            "asm-commons-9.7.jar",
-            "asm-util-9.7.jar",
-            "asm-analysis-9.7.jar",
-            "asm-tree-9.7.jar",
-            "asm-9.7.jar",
-            "JarJarFileSystems-0.3.19.jar",
-            "ForgeAutoRenamingTool-0.1.22-all.jar",
-            "binarypatcher-1.1.1.jar",
-            "installertools-1.4.1.jar",
-            "jarsplitter-1.1.4.jar",
-            "client-1.20.1-20230612.114412-slim.jar",
-            "client-1.20.1-20230612.114412-extra.jar",
-            "client-1.20.1-20230612.114412-srg.jar",
-            "1.20.1.jar" // Vanilla JAR - Forge загружает его сам
-        };
-
-        // Добавляем все JAR файлы из libraries кроме исключенных
+        var isForge = options.MainClass == "cpw.mods.bootstraplauncher.BootstrapLauncher";
         var librariesPath = options.LibrariesDirectory;
         if (Directory.Exists(librariesPath))
         {
-            var jarFiles = Directory.GetFiles(librariesPath, "*.jar", SearchOption.AllDirectories)
-                .Where(jar => !excludedJars.Contains(Path.GetFileName(jar)))
-                .ToList();
-            Log($"Found {jarFiles.Count} library JARs (excluded {excludedJars.Count} modular/installer JARs)");
-            classpathEntries.AddRange(jarFiles);
+            if (isForge)
+            {
+                // Для Forge берем библиотеки строго из version.json текущей версии.
+                // Это исключает старые/дублирующиеся JAR из libraries, которые ломают module resolution.
+                var forgeJsonPath = Path.Combine(options.GameDirectory, "versions", options.Version, $"{options.Version}.json");
+                if (File.Exists(forgeJsonPath))
+                {
+                    try
+                    {
+                        var fromJson = CollectForgeClasspathJarsFromVersionChain(forgeJsonPath, librariesPath);
+                        classpathEntries.AddRange(fromJson.Distinct(StringComparer.OrdinalIgnoreCase));
+                        Log($"Forge classpath from version chain: {classpathEntries.Count} entries");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"WARNING: Failed to parse Forge version json ({forgeJsonPath}): {ex.Message}");
+                    }
+                }
+            }
+
+            // Fallback или vanilla: старый механизм сканирования libraries.
+            if (classpathEntries.Count == 0)
+            {
+                var jarFiles = Directory.GetFiles(librariesPath, "*.jar", SearchOption.AllDirectories)
+                    .Where(jar => !ShouldExcludeClasspathJarByRelativePath(librariesPath, jar))
+                    .ToList();
+                Log($"Fallback libraries scan: {jarFiles.Count} JARs");
+                classpathEntries.AddRange(jarFiles);
+            }
         }
         else
         {
@@ -357,7 +373,6 @@ public class GameLauncher
         }
 
         // Для vanilla обязательно добавляем version JAR, иначе main class не будет найден.
-        var isForge = options.MainClass == "cpw.mods.bootstraplauncher.BootstrapLauncher";
         if (!isForge)
         {
             var vanillaJarPath = Path.Combine(options.GameDirectory, "versions", options.Version, $"{options.Version}.jar");
@@ -380,6 +395,246 @@ public class GameLauncher
         return string.Join(separator, classpathEntries);
     }
 
+    private static bool TryAppendForgeJvmArgumentsFromVersionJson(string forgeVersionJsonPath, LaunchOptions options, IList<string> args)
+    {
+        if (!File.Exists(forgeVersionJsonPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var root = JObject.Parse(File.ReadAllText(forgeVersionJsonPath));
+            var jvmArgs = root["arguments"]?["jvm"] as JArray;
+            if (jvmArgs == null)
+            {
+                return false;
+            }
+
+            var expandedTokens = new List<string>();
+            foreach (var token in jvmArgs)
+            {
+                if (token.Type != JTokenType.String)
+                {
+                    continue;
+                }
+
+                var expanded = ExpandForgeTemplates(token.Value<string>() ?? string.Empty, options);
+                if (string.IsNullOrWhiteSpace(expanded))
+                {
+                    continue;
+                }
+
+                expandedTokens.Add(expanded);
+            }
+
+            var pending = new List<string>();
+            for (var i = 0; i < expandedTokens.Count; i++)
+            {
+                var current = expandedTokens[i];
+
+                if (string.Equals(current, "-p", StringComparison.Ordinal))
+                {
+                    if (i + 1 >= expandedTokens.Count)
+                    {
+                        return false;
+                    }
+
+                    var modulePath = expandedTokens[i + 1];
+                    if (string.IsNullOrWhiteSpace(modulePath) || modulePath.StartsWith('-'))
+                    {
+                        return false;
+                    }
+
+                    pending.Add("-p");
+                    pending.Add(modulePath);
+                    i++;
+                    continue;
+                }
+
+                pending.Add(current);
+            }
+
+            foreach (var arg in pending)
+            {
+                args.Add(arg);
+            }
+
+            return pending.Count > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryAppendForgeGameArgumentsFromVersionJson(LaunchOptions options, IList<string> args)
+    {
+        var forgeVersionJsonPath = Path.Combine(options.GameDirectory, "versions", options.Version, $"{options.Version}.json");
+        if (!File.Exists(forgeVersionJsonPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var root = JObject.Parse(File.ReadAllText(forgeVersionJsonPath));
+            var gameArgs = root["arguments"]?["game"] as JArray;
+            if (gameArgs == null)
+            {
+                return false;
+            }
+
+            foreach (var token in gameArgs)
+            {
+                if (token.Type != JTokenType.String)
+                {
+                    continue;
+                }
+
+                var expanded = ExpandForgeTemplates(token.Value<string>() ?? string.Empty, options);
+                if (!string.IsNullOrWhiteSpace(expanded))
+                {
+                    args.Add(expanded);
+                }
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string ExpandForgeTemplates(string value, LaunchOptions options)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
+        }
+
+        var expanded = value
+            .Replace("${library_directory}", options.LibrariesDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            .Replace("${version_name}", options.Version)
+            .Replace("${classpath_separator}", Path.PathSeparator.ToString());
+
+        return expanded;
+    }
+
+    private static List<string> CollectForgeClasspathJarsFromVersionChain(string startingVersionJsonPath, string librariesRoot)
+    {
+        var result = new List<string>();
+        var visitedJson = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Walk(string jsonPath)
+        {
+            if (!File.Exists(jsonPath) || !visitedJson.Add(jsonPath))
+            {
+                return;
+            }
+
+            var json = JObject.Parse(File.ReadAllText(jsonPath));
+
+            if (json["libraries"] is JArray libraries)
+            {
+                foreach (var library in libraries)
+                {
+                    var artifactPath = library["downloads"]?["artifact"]?["path"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(artifactPath))
+                    {
+                        continue;
+                    }
+
+                    var absoluteJar = Path.Combine(librariesRoot, artifactPath.Replace('/', Path.DirectorySeparatorChar));
+                    if (!File.Exists(absoluteJar))
+                    {
+                        continue;
+                    }
+
+                    if (!ShouldExcludeClasspathJarByRelativePath(librariesRoot, absoluteJar))
+                    {
+                        result.Add(absoluteJar);
+                    }
+                }
+            }
+
+            var inheritsFrom = json["inheritsFrom"]?.Value<string>();
+            if (string.IsNullOrWhiteSpace(inheritsFrom))
+            {
+                return;
+            }
+
+            var parentJsonPath = Path.Combine(Path.GetDirectoryName(jsonPath)!, "..", inheritsFrom, $"{inheritsFrom}.json");
+            parentJsonPath = Path.GetFullPath(parentJsonPath);
+            Walk(parentJsonPath);
+        }
+
+        Walk(startingVersionJsonPath);
+        return result;
+    }
+
+    private static bool ShouldExcludeClasspathJarByRelativePath(string librariesRoot, string absoluteJarPath)
+    {
+        try
+        {
+            var rel = Path.GetRelativePath(librariesRoot, absoluteJarPath)
+                .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+
+            if (rel.Contains("..", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            // These belong to the Forge bootstrap module layer, not the game classpath.
+            if (rel.StartsWith("cpw" + Path.DirectorySeparatorChar + "mods" + Path.DirectorySeparatorChar + "bootstraplauncher" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (rel.StartsWith("cpw" + Path.DirectorySeparatorChar + "mods" + Path.DirectorySeparatorChar + "securejarhandler" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (rel.StartsWith("org" + Path.DirectorySeparatorChar + "ow2" + Path.DirectorySeparatorChar + "asm" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (rel.StartsWith("net" + Path.DirectorySeparatorChar + "minecraftforge" + Path.DirectorySeparatorChar + "JarJarFileSystems" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fileName = Path.GetFileName(rel);
+            if (fileName.StartsWith("client-", StringComparison.OrdinalIgnoreCase) &&
+                fileName.EndsWith(".jar", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (string.Equals(fileName, "1.20.1.jar", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (fileName.Contains("ForgeAutoRenamingTool", StringComparison.OrdinalIgnoreCase) ||
+                fileName.Contains("binarypatcher", StringComparison.OrdinalIgnoreCase) ||
+                fileName.Contains("installertools", StringComparison.OrdinalIgnoreCase) ||
+                fileName.Contains("jarsplitter", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public void StopGame()
     {
         if (_gameProcess != null && !_gameProcess.HasExited)
@@ -393,5 +648,30 @@ public class GameLauncher
     public bool IsGameRunning()
     {
         return _gameProcess != null && !_gameProcess.HasExited;
+    }
+
+    private static string? ExtractForgeVersion(string versionId)
+    {
+        const string marker = "-forge-";
+        var idx = versionId.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+        {
+            return null;
+        }
+
+        var start = idx + marker.Length;
+        return start < versionId.Length ? versionId[start..] : null;
+    }
+
+    private static string? ExtractMinecraftVersion(string versionId)
+    {
+        const string marker = "-forge-";
+        var idx = versionId.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (idx <= 0)
+        {
+            return null;
+        }
+
+        return versionId[..idx];
     }
 }

@@ -10,7 +10,8 @@ public class AuthResult
     public string MinecraftUUID { get; set; } = string.Empty;
     public string UUID { get; set; } = string.Empty; // Для обратной совместимости
     public string AccessToken { get; set; } = string.Empty;
-    public bool IsOffline { get; set; } = true;
+    /// <summary>Только для локального offline-входа без JWT. Для API-сессий всегда false — не полагаться на дефолт при десериализации.</summary>
+    public bool IsOffline { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
     public string? RecoveryCode { get; set; } // Код восстановления (только при регистрации)
     public bool RequiresPasswordReset { get; set; }

@@ -872,7 +872,8 @@ public class AuthController : ControllerBase
         {
             Success = true,
             Username = user.Username,
-            Email = user.Email,
+            Email = user.Email ?? string.Empty,
+            MinecraftUUID = user.MinecraftUUID ?? string.Empty,
             PlayTimeMinutes = user.PlayTimeMinutes,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
@@ -1131,6 +1132,7 @@ public class ProfileResponse
     public bool Success { get; set; }
     public string Username { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public string MinecraftUUID { get; set; } = string.Empty;
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }

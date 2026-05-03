@@ -47,6 +47,13 @@ public class ApiService
 
     public void SetAuthToken(string token)
     {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            _authToken = null;
+            _httpClient.DefaultRequestHeaders.Authorization = null;
+            return;
+        }
+
         _authToken = token;
         _httpClient.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
@@ -252,10 +259,12 @@ public class ApiService
                     return ApiResponse<ModpackInfo>.Success(new ModpackInfo
                     {
                         Version = result.Version,
+                        DisplayVersion = result.DisplayVersion,
                         DownloadUrl = result.DownloadUrl,
                         SHA256Hash = result.SHA256Hash,
                         FileSizeBytes = result.FileSizeBytes,
-                        Changelog = result.Changelog
+                        Changelog = result.Changelog,
+                        DeltaManifestUrl = result.DeltaManifestUrl
                     });
                 }
             }
@@ -325,6 +334,7 @@ public class ApiService
                     {
                         Username = result.Username,
                         Email = result.Email,
+                        MinecraftUUID = result.MinecraftUUID,
                         PlayTimeMinutes = result.PlayTimeMinutes,
                         CreatedAt = result.CreatedAt,
                         LastLoginAt = result.LastLoginAt,
@@ -341,7 +351,8 @@ public class ApiService
         }
     }
 
-    public async Task<ApiResponse<string>> ChangeUsernameAsync(string newUsername)
+    /// <summary>Смена ника. Сервер пересчитывает <c>MinecraftUUID</c> — в ответе возвращается актуальный профиль.</summary>
+    public async Task<ApiResponse<UserInfoDto?>> ChangeUsernameAsync(string newUsername)
     {
         try
         {
@@ -353,17 +364,17 @@ public class ApiService
                 var result = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
                 if (result?.Success == true)
                 {
-                    return ApiResponse<string>.Success(result.Message ?? "Никнейм изменен");
+                    return ApiResponse<UserInfoDto?>.Success(result.User);
                 }
-                return ApiResponse<string>.Failure(result?.Message ?? "Ошибка смены никнейма");
+                return ApiResponse<UserInfoDto?>.Failure(result?.Message ?? "Ошибка смены никнейма");
             }
 
             var error = await response.Content.ReadFromJsonAsync<AuthResponseDto>();
-            return ApiResponse<string>.Failure(error?.Message ?? "Ошибка смены никнейма");
+            return ApiResponse<UserInfoDto?>.Failure(error?.Message ?? "Ошибка смены никнейма");
         }
         catch (Exception ex)
         {
-            return ApiResponse<string>.Failure($"Ошибка подключения: {ex.Message}");
+            return ApiResponse<UserInfoDto?>.Failure($"Ошибка подключения: {ex.Message}");
         }
     }
 
@@ -783,6 +794,7 @@ public class ProfileResponseDto
     public bool Success { get; set; }
     public string Username { get; set; } = "";
     public string Email { get; set; } = "";
+    public string MinecraftUUID { get; set; } = "";
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -816,10 +828,12 @@ public class AdminUserDto
 public class ModpackInfoDto
 {
     public string Version { get; set; } = "";
+    public string? DisplayVersion { get; set; }
     public string DownloadUrl { get; set; } = "";
     public string SHA256Hash { get; set; } = "";
     public long FileSizeBytes { get; set; }
     public string? Changelog { get; set; }
+    public string? DeltaManifestUrl { get; set; }
 }
 
 public class ServerStatusDto
@@ -849,10 +863,12 @@ public class ApiResponse<T>
 public class ModpackInfo
 {
     public string Version { get; set; } = "";
+    public string? DisplayVersion { get; set; }
     public string DownloadUrl { get; set; } = "";
     public string SHA256Hash { get; set; } = "";
     public long FileSizeBytes { get; set; }
     public string? Changelog { get; set; }
+    public string? DeltaManifestUrl { get; set; }
 }
 
 // ProfileInfo model
@@ -860,6 +876,7 @@ public class ProfileInfo
 {
     public string Username { get; set; } = "";
     public string Email { get; set; } = "";
+    public string MinecraftUUID { get; set; } = "";
     public int PlayTimeMinutes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }

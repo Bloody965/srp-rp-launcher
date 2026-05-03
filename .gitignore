@@ -67,6 +67,7 @@ Thumbs.db
 
 # Publish artifacts and local packages
 publish-launcher/
+publish-api/
 publish-installer/
 *.zip
 src/ApocalypseLauncher.API/*.db

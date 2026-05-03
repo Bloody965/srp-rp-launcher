@@ -238,10 +238,44 @@ public class MainWindowViewModel : ViewModelBase
                 });
 
                 // Подготавливаем auth-данные для запуска игры.
-                // Даже если UUID не был сохранён (старый формат session.dat), offline-UUID алгоритм совпадает с серверным.
-                if (string.IsNullOrWhiteSpace(minecraftUuid))
+                // Старые сохранённые сессии могли не содержать UUID — в этом случае берём его из /api/auth/profile,
+                // иначе легко получить рассинхрон с тем, что реально хранится в БД (и "чужой" скин через Yggdrasil).
+                if (string.IsNullOrWhiteSpace(minecraftUuid) || !TryNormalizeMinecraftUuid(minecraftUuid, out var _))
                 {
-                    minecraftUuid = _authService.AuthenticateOffline(username).UUID;
+                    var profile = await _apiService.GetProfileAsync();
+                    if (profile.IsSuccess &&
+                        profile.Data != null &&
+                        TryNormalizeMinecraftUuid(profile.Data.MinecraftUUID, out var normalizedFromProfile))
+                    {
+                        minecraftUuid = normalizedFromProfile;
+
+                        if (!string.IsNullOrWhiteSpace(profile.Data.Username))
+                        {
+                            username = profile.Data.Username;
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(profile.Data.Email))
+                        {
+                            email = profile.Data.Email;
+                        }
+
+                        SaveToken(token, username, email, minecraftUuid);
+
+                        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            Username = username;
+                            UserEmail = email;
+                        });
+                    }
+                    else
+                    {
+                        // Последняя страховка: offline UUID по нику (совпадает с PasswordService.GenerateMinecraftUUID на API).
+                        minecraftUuid = _authService.AuthenticateOffline(username).UUID;
+                    }
+                }
+                else if (TryNormalizeMinecraftUuid(minecraftUuid, out var normalizedSavedUuid))
+                {
+                    minecraftUuid = normalizedSavedUuid;
                 }
 
                 _sessionAuthResult = new AuthResult
@@ -255,6 +289,9 @@ public class MainWindowViewModel : ViewModelBase
                     IsOffline = false,
                     CreatedAt = DateTime.Now
                 };
+
+                ApplyCanonicalUuidToAuthResult(_sessionAuthResult);
+                await EnsureSessionUuidAlignedWithServerAsync();
 
                 CheckInstallation();
                 await CheckModpackVersionAsync();
@@ -273,6 +310,123 @@ public class MainWindowViewModel : ViewModelBase
         {
             Console.WriteLine($"[TryAutoLogin] Ошибка: {ex.Message}");
         }
+    }
+
+    private static bool TryNormalizeMinecraftUuid(string raw, out string normalized)
+    {
+        normalized = string.Empty;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return false;
+        }
+
+        var trimmed = raw.Trim();
+
+        // Accept canonical dashed UUIDs and common "no dashes" forms.
+        if (Guid.TryParse(trimmed, out var guid))
+        {
+            normalized = guid.ToString("D");
+            return true;
+        }
+
+        var hex = trimmed.Replace("-", "", StringComparison.Ordinal);
+        if (hex.Length == 32 && Guid.TryParse(hex, out var guidNoDashes))
+        {
+            normalized = guidNoDashes.ToString("D");
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Приводит UUID/MinecraftUUID к одному каноническому виду после ответа API (без сети).</summary>
+    private static void ApplyCanonicalUuidToAuthResult(AuthResult? r)
+    {
+        if (r == null || string.IsNullOrWhiteSpace(r.Token))
+        {
+            return;
+        }
+
+        r.IsOffline = false;
+
+        var hasM = TryNormalizeMinecraftUuid(r.MinecraftUUID, out var m);
+        var hasU = TryNormalizeMinecraftUuid(r.UUID, out var u);
+        if (hasM && hasU)
+        {
+            r.MinecraftUUID = m;
+            r.UUID = u;
+            return;
+        }
+
+        if (hasM)
+        {
+            r.MinecraftUUID = m;
+            r.UUID = m;
+            return;
+        }
+
+        if (hasU)
+        {
+            r.UUID = u;
+            r.MinecraftUUID = u;
+        }
+    }
+
+    /// <summary>Гарантирует, что в сессии UUID совпадает с БД (Yggdrasil / скины). Идемпотентно.</summary>
+    private async Task EnsureSessionUuidAlignedWithServerAsync()
+    {
+        if (_sessionAuthResult == null || string.IsNullOrWhiteSpace(_sessionAuthResult.Token))
+        {
+            return;
+        }
+
+        ApplyCanonicalUuidToAuthResult(_sessionAuthResult);
+
+        if (TryNormalizeMinecraftUuid(_sessionAuthResult.UUID, out var uuidNorm) &&
+            TryNormalizeMinecraftUuid(_sessionAuthResult.MinecraftUUID, out var mcNorm) &&
+            string.Equals(uuidNorm, mcNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            _sessionAuthResult.UUID = uuidNorm;
+            _sessionAuthResult.MinecraftUUID = mcNorm;
+            return;
+        }
+
+        var profile = await _apiService.GetProfileAsync();
+        if (!profile.IsSuccess || profile.Data == null)
+        {
+            return;
+        }
+
+        if (!TryNormalizeMinecraftUuid(profile.Data.MinecraftUUID, out var serverUuid))
+        {
+            return;
+        }
+
+        _sessionAuthResult.UUID = serverUuid;
+        _sessionAuthResult.MinecraftUUID = serverUuid;
+        _sessionAuthResult.IsOffline = false;
+
+        if (!string.IsNullOrWhiteSpace(profile.Data.Username))
+        {
+            _sessionAuthResult.Username = profile.Data.Username;
+        }
+
+        if (!string.IsNullOrWhiteSpace(profile.Data.Email))
+        {
+            _sessionAuthResult.Email = profile.Data.Email;
+        }
+
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Username = _sessionAuthResult.Username;
+            UserEmail = _sessionAuthResult.Email;
+        });
+
+        SaveToken(
+            _sessionAuthResult.Token,
+            _sessionAuthResult.Username,
+            _sessionAuthResult.Email,
+            serverUuid);
     }
 
     private static string ProtectSessionData(string plainText)
@@ -1113,6 +1267,8 @@ public class MainWindowViewModel : ViewModelBase
 
     private void Logout()
     {
+        _sessionAuthResult = null;
+        _apiService.SetAuthToken(string.Empty);
         IsLoggedIn = false;
         IsRegistering = false;
         CurrentView = "Login";
@@ -1524,6 +1680,7 @@ public class MainWindowViewModel : ViewModelBase
     private void PrepareForSuccessfulLogin(AuthResult result)
     {
         _sessionAuthResult = result;
+        ApplyCanonicalUuidToAuthResult(result);
         IsLoggedIn = true;
         IsRegistering = false;
         IsResettingPassword = false;
@@ -2424,6 +2581,7 @@ public class MainWindowViewModel : ViewModelBase
             {
                 PrepareForSuccessfulLogin(result.Data);
                 SaveToken(result.Data.Token ?? string.Empty, result.Data.Username, result.Data.Email, result.Data.MinecraftUUID);
+                await EnsureSessionUuidAlignedWithServerAsync();
                 Console.WriteLine("[LoginAsync] Вход успешен");
 
                 CheckInstallation();
@@ -2494,6 +2652,7 @@ public class MainWindowViewModel : ViewModelBase
             {
                 PrepareForSuccessfulLogin(result.Data);
                 SaveToken(result.Data.Token ?? string.Empty, result.Data.Username, result.Data.Email, result.Data.MinecraftUUID);
+                await EnsureSessionUuidAlignedWithServerAsync();
                 WebHandoffCode = string.Empty;
                 StatusMessage = "Вход через сайт выполнен.";
 
@@ -2566,7 +2725,8 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             var currentVersion = await _modpackUpdater.GetCurrentVersionAsync();
-            ModpackVersion = $"Сборка: v{currentVersion}";
+            var displayLabel = await ResolveModpackDisplayLabelAsync(currentVersion);
+            ModpackVersion = $"Сборка: {displayLabel}";
 
             // Проверяем наличие обновлений
             var hasUpdate = await _modpackUpdater.CheckForUpdatesAsync();
@@ -2582,6 +2742,53 @@ public class MainWindowViewModel : ViewModelBase
             ModpackVersion = "Сборка: не установлена";
             HasModpackUpdate = false;
         }
+    }
+
+    private async Task<string> ResolveModpackDisplayLabelAsync(string installedUpdateKey)
+    {
+        try
+        {
+            var info = await _apiService.GetModpackVersionAsync();
+            if (info.IsSuccess && info.Data != null)
+            {
+                if (!string.IsNullOrWhiteSpace(info.Data.DisplayVersion))
+                {
+                    return $"v{info.Data.DisplayVersion.Trim()}";
+                }
+
+                // Если displayVersion не задан, но ключ обновления выглядит как semver — показываем его.
+                if (LooksLikeSemanticVersion(installedUpdateKey))
+                {
+                    return $"v{installedUpdateKey.Trim()}";
+                }
+
+                // Иначе показываем человекочитаемую версию с сервера (часто semver), а не внутренний ключ.
+                if (LooksLikeSemanticVersion(info.Data.Version))
+                {
+                    return $"v{info.Data.Version.Trim()}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ResolveModpackDisplayLabelAsync] Warning: {ex.Message}");
+        }
+
+        // Фолбэк без API: показываем semver если получится, иначе как есть.
+        return LooksLikeSemanticVersion(installedUpdateKey)
+            ? $"v{installedUpdateKey.Trim()}"
+            : installedUpdateKey.Trim();
+    }
+
+    private static bool LooksLikeSemanticVersion(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var trimmed = value.Trim();
+        return Version.TryParse(trimmed, out _);
     }
 
     private async Task UpdateModpackAsync()
@@ -2725,12 +2932,33 @@ public class MainWindowViewModel : ViewModelBase
             // Скачиваем authlib-injector если его нет
             await DownloadAuthlibInjectorIfNeededAsync();
 
-            // Для offline-mode серверов UUID должен строго совпадать с алгоритмом OfflinePlayer:<name>.
-            // Поэтому даже при API-сессии берём access token из сессии, но UUID пересчитываем локально.
+            // UUID должен совпадать с тем, что выдаёт Yggdrasil (authlib-injector), иначе скины/текстуры профиля будут "чужие".
+            // Offline UUID нужен только когда нет API-сессии (нет JWT / нет UUID профиля).
+            //
+            // Важно: не используем AuthResult.IsOffline как источник истины для выбора UUID (только JWT + UUID).
             var authResult = _sessionAuthResult ?? _authService.AuthenticateOffline(Username);
-            var offlineIdentity = _authService.AuthenticateOffline(Username);
-            authResult.UUID = offlineIdentity.UUID;
-            authResult.MinecraftUUID = offlineIdentity.UUID;
+            if (_sessionAuthResult != null && !string.IsNullOrWhiteSpace(_sessionAuthResult.Token))
+            {
+                await EnsureSessionUuidAlignedWithServerAsync();
+                authResult = _sessionAuthResult ?? authResult;
+            }
+
+            var hasApiSession =
+                !string.IsNullOrWhiteSpace(authResult.Token) &&
+                !string.IsNullOrWhiteSpace(authResult.UUID);
+
+            if (!hasApiSession)
+            {
+                var offlineIdentity = _authService.AuthenticateOffline(Username);
+                authResult.UUID = offlineIdentity.UUID;
+                authResult.MinecraftUUID = offlineIdentity.UUID;
+                authResult.AccessToken = offlineIdentity.AccessToken;
+                authResult.IsOffline = true;
+            }
+            else
+            {
+                authResult.IsOffline = false;
+            }
 
             // CreateLaunchOptions автоматически определит Forge или vanilla
             var launchOptions = _installer.CreateLaunchOptions(authResult);
@@ -2794,10 +3022,19 @@ public class MainWindowViewModel : ViewModelBase
     private void CheckInstallation()
     {
         // Проверяем Forge версию (приоритет)
-        var forgeJsonPath = Path.Combine(_minecraftDirectory, "versions", "1.20.1-forge-47.3.0", "1.20.1-forge-47.3.0.json");
-        var vanillaJarPath = Path.Combine(_minecraftDirectory, "versions", "1.20.1", "1.20.1.jar");
+        var versionsDir = Path.Combine(_minecraftDirectory, "versions");
+        var forgeInstalled = false;
+        if (Directory.Exists(versionsDir))
+        {
+            var installedForge = Directory.GetDirectories(versionsDir, "1.20.1-forge-*", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Select(name => name!)
+                .Any(name => File.Exists(Path.Combine(versionsDir, name, $"{name}.json")));
+            forgeInstalled = installedForge;
+        }
 
-        bool forgeInstalled = File.Exists(forgeJsonPath);
+        var vanillaJarPath = Path.Combine(_minecraftDirectory, "versions", "1.20.1", "1.20.1.jar");
         bool vanillaInstalled = File.Exists(vanillaJarPath);
 
         IsInstalled = vanillaInstalled; // Для запуска нужна хотя бы vanilla
@@ -3174,27 +3411,38 @@ public class MainWindowViewModel : ViewModelBase
             }
 
             StatusMessage = "Изменение никнейма...";
-            var result = await _apiService.ChangeUsernameAsync(NewNickname);
+            var normalizedNickname = NormalizeUsername(NewNickname);
+            var result = await _apiService.ChangeUsernameAsync(normalizedNickname);
 
             if (result.IsSuccess)
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    Username = NewNickname;
+                    Username = normalizedNickname;
                     IsEditingNickname = false;
                     NewNickname = "";
                     LoginErrorMessage = null;
                     StatusMessage = "Никнейм успешно изменен!";
                 });
 
-                // Обновляем сохраненный токен с новым никнеймом
-                var tokenFile = GetTokenFilePath();
-                if (File.Exists(tokenFile))
+                // Сервер пересчитывает MinecraftUUID под новый ник — обязательно обновить сессию и session.dat.
+                if (_sessionAuthResult != null)
                 {
-                    var data = File.ReadAllText(tokenFile).Split('|');
-                    if (data.Length == 3)
+                    _sessionAuthResult.Username = Username;
+                    if (result.Data != null && TryNormalizeMinecraftUuid(result.Data.MinecraftUUID, out var newUuid))
                     {
-                        SaveToken(data[0], Username, data[2]);
+                        _sessionAuthResult.MinecraftUUID = newUuid;
+                        _sessionAuthResult.UUID = newUuid;
+                    }
+                    else
+                    {
+                        await EnsureSessionUuidAlignedWithServerAsync();
+                    }
+
+                    var token = _apiService.GetCurrentAuthToken();
+                    if (!string.IsNullOrWhiteSpace(token))
+                    {
+                        SaveToken(token, Username, UserEmail, _sessionAuthResult.MinecraftUUID);
                     }
                 }
             }

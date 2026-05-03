@@ -17,7 +17,7 @@ public class MinecraftInstaller
     private readonly DownloadService _downloadService;
     private readonly string _minecraftDirectory;
     private const string VERSION = "1.20.1";
-    private const string FORGE_VERSION = "47.3.0"; // Последняя стабильная версия Forge для 1.20.1
+    private const string FORGE_VERSION = "47.4.0"; // Версия Forge, требуемая текущей сборкой
 
     public event EventHandler<string>? StatusChanged;
     public event EventHandler<int>? ProgressChanged;
@@ -579,13 +579,11 @@ public class MinecraftInstaller
     {
         var gameDir = _minecraftDirectory;
 
-        // Проверяем наличие Forge (проверяем JSON файл, а не JAR)
-        var forgeVersion = $"{VERSION}-forge-{FORGE_VERSION}";
-        var forgeDir = Path.Combine(gameDir, "versions", forgeVersion);
-        var forgeJson = Path.Combine(forgeDir, $"{forgeVersion}.json");
-        var useForge = File.Exists(forgeJson);
+        PruneConflictingForgeInstallations(gameDir, FORGE_VERSION);
 
-        var versionToUse = useForge ? forgeVersion : VERSION;
+        var installedForgeVersionId = FindInstalledForgeVersionId(gameDir);
+        var useForge = !string.IsNullOrWhiteSpace(installedForgeVersionId);
+        var versionToUse = useForge ? installedForgeVersionId! : VERSION;
         var versionDir = Path.Combine(gameDir, "versions", versionToUse);
 
         Console.WriteLine($"[CreateLaunchOptions] Using version: {versionToUse}");
@@ -628,6 +626,130 @@ public class MinecraftInstaller
             JavaPath = FindJavaPath(),
             MainClass = useForge ? "cpw.mods.bootstraplauncher.BootstrapLauncher" : "net.minecraft.client.main.Main"
         };
+    }
+
+    private static void PruneConflictingForgeInstallations(string gameDir, string expectedForgeBuild)
+    {
+        try
+        {
+            var expectedVersionId = $"{VERSION}-forge-{expectedForgeBuild}";
+            PruneForgeProfilesExcept(gameDir, expectedVersionId);
+            PruneForgeMavenArtifacts(gameDir, expectedForgeBuild);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[PruneConflictingForgeInstallations] Warning: {ex.Message}");
+        }
+    }
+
+    private static void PruneForgeProfilesExcept(string gameDir, string keepVersionId)
+    {
+        var versionsDir = Path.Combine(gameDir, "versions");
+        if (!Directory.Exists(versionsDir))
+        {
+            return;
+        }
+
+        foreach (var dir in Directory.GetDirectories(versionsDir, $"{VERSION}-forge-*", SearchOption.TopDirectoryOnly))
+        {
+            var name = Path.GetFileName(dir);
+            if (string.Equals(name, keepVersionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(dir, true);
+                Console.WriteLine($"[PruneForgeProfilesExcept] Removed old Forge profile: {dir}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PruneForgeProfilesExcept] Failed to remove {dir}: {ex.Message}");
+            }
+        }
+    }
+
+    private static void PruneForgeMavenArtifacts(string gameDir, string expectedForgeBuild)
+    {
+        var forgeRoot = Path.Combine(gameDir, "libraries", "net", "minecraftforge", "forge");
+        if (!Directory.Exists(forgeRoot))
+        {
+            return;
+        }
+
+        var expectedPrefix = $"{VERSION}-{expectedForgeBuild}";
+        foreach (var dir in Directory.GetDirectories(forgeRoot, $"{VERSION}-*", SearchOption.TopDirectoryOnly))
+        {
+            var folderName = Path.GetFileName(dir);
+            if (string.Equals(folderName, expectedPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(dir, true);
+                Console.WriteLine($"[PruneForgeMavenArtifacts] Removed old Forge maven folder: {dir}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[PruneForgeMavenArtifacts] Failed to remove {dir}: {ex.Message}");
+            }
+        }
+    }
+
+    private static string? FindInstalledForgeVersionId(string gameDir)
+    {
+        var versionsDir = Path.Combine(gameDir, "versions");
+        if (!Directory.Exists(versionsDir))
+        {
+            return null;
+        }
+
+        var candidates = Directory.GetDirectories(versionsDir, $"{VERSION}-forge-*", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .Select(name => new
+            {
+                VersionId = name,
+                ForgePart = name.StartsWith($"{VERSION}-forge-", StringComparison.OrdinalIgnoreCase)
+                    ? name.Substring($"{VERSION}-forge-".Length)
+                    : string.Empty
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x.ForgePart))
+            .Select(x =>
+            {
+                var jsonPath = Path.Combine(versionsDir, x.VersionId, $"{x.VersionId}.json");
+                return new
+                {
+                    x.VersionId,
+                    x.ForgePart,
+                    HasJson = File.Exists(jsonPath)
+                };
+            })
+            .Where(x => x.HasJson)
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var best = candidates
+            .OrderByDescending(x => ParseForgeVersion(x.ForgePart))
+            .ThenByDescending(x => x.ForgePart, StringComparer.OrdinalIgnoreCase)
+            .First();
+
+        return best.VersionId;
+    }
+
+    private static Version ParseForgeVersion(string value)
+    {
+        return Version.TryParse(value, out var parsed)
+            ? parsed
+            : new Version(0, 0);
     }
 
     private string FindJavaPath()

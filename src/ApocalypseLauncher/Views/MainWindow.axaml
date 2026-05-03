@@ -66,7 +66,7 @@
                         <StackPanel Spacing="3" VerticalAlignment="Center">
                             <TextBlock Text="POST-APOCALYPSE RESIDENT RP" Classes="kickerText"/>
                             <TextBlock Text="SRP-RP LAUNCHER" Classes="heroTitleSmall"/>
-                            <TextBlock Text="Forge 1.20.1 • official launcher terminal" Classes="metaText"/>
+                            <TextBlock Text="Forge 1.20.1-47.4.0 • official launcher terminal" Classes="metaText"/>
                         </StackPanel>
                     </StackPanel>
 
@@ -110,7 +110,7 @@
                                         <Border Grid.Column="1" Classes="metricCard" Padding="18">
                                             <StackPanel Spacing="6">
                                                 <TextBlock Text="КЛИЕНТ" Classes="microLabel"/>
-                                                <TextBlock Text="Forge 1.20.1" Classes="metricValue"/>
+                                                <TextBlock Text="Forge 1.20.1-47.4.0" Classes="metricValue"/>
                                                 <TextBlock Text="Вход, установка, обновление и запуск игры через один терминал." Classes="captionText" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </Border>
@@ -744,7 +744,7 @@
                         <TextBlock Text="{Binding LauncherVersionText}" Classes="captionText" TextWrapping="NoWrap"/>
                     </StackPanel>
 
-                    <TextBlock Grid.Column="1" Text="Post-apocalypse web palette • Forge 1.20.1" Classes="captionText" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="Post-apocalypse web palette • Forge 1.20.1-47.4.0" Classes="captionText" HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
                     <TextBlock Grid.Column="2" Text="Field access for SRP-RP • 2026" Classes="captionText" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                 </Grid>
