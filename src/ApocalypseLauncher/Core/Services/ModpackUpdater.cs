@@ -90,7 +90,7 @@ public class ModpackUpdater
             using (var httpClient = new HttpClient())
             {
                 var authToken = _apiService.GetCurrentAuthToken();
-                if (!string.IsNullOrWhiteSpace(authToken))
+                if (!string.IsNullOrWhiteSpace(authToken) && ShouldAttachAuthHeader(modpackInfo.DownloadUrl))
                 {
                     httpClient.DefaultRequestHeaders.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", authToken);
@@ -128,6 +128,14 @@ public class ModpackUpdater
             }
 
             Console.WriteLine($"[ModpackUpdater] Downloaded to: {tempZip}");
+
+            if (!IsZipFile(tempZip))
+            {
+                var sourceHost = TryGetHost(modpackInfo.DownloadUrl);
+                StatusChanged?.Invoke(this, $"Ошибка: файл не ZIP. Источник: {sourceHost}. Проверьте Modpack:DownloadUrl на сервере.");
+                try { File.Delete(tempZip); } catch { }
+                return false;
+            }
 
             // Проверка SHA256 хеша (пропускаем если хеш = "skip")
             if (!modpackInfo.SHA256Hash.Equals("skip", StringComparison.OrdinalIgnoreCase))
@@ -201,6 +209,66 @@ public class ModpackUpdater
             var hash = sha256.ComputeHash(stream);
             return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
         }
+    }
+
+    private static bool IsZipFile(string filePath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(filePath);
+            if (stream.Length < 4)
+            {
+                return false;
+            }
+
+            Span<byte> header = stackalloc byte[4];
+            var read = stream.Read(header);
+            if (read < 4)
+            {
+                return false;
+            }
+
+            return header[0] == (byte)'P' &&
+                   header[1] == (byte)'K' &&
+                   (header[2] == 3 || header[2] == 5 || header[2] == 7) &&
+                   (header[3] == 4 || header[3] == 6 || header[3] == 8);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool ShouldAttachAuthHeader(string downloadUrl)
+    {
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var targetUri))
+        {
+            // Relative links are expected to be served by API and may require auth.
+            return true;
+        }
+
+        var apiBase = _apiService.GetBaseAddress();
+        if (apiBase == null)
+        {
+            return false;
+        }
+
+        return string.Equals(targetUri.Host, apiBase.Host, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string TryGetHost(string downloadUrl)
+    {
+        if (Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri))
+        {
+            return uri.Host;
+        }
+
+        return "relative-url";
     }
 
 }

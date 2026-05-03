@@ -395,12 +395,21 @@
                                             <TextBlock Text="Главное действие вынесено наверх, а служебные операции собраны ниже в одном блоке." Classes="captionText" TextWrapping="Wrap"/>
 
                                             <Button Content="ОБНОВИТЬ ЛАУНЧЕР" Command="{Binding UpdateLauncherCommand}" IsVisible="{Binding HasLauncherUpdate}" Classes="launchButton" Height="76" FontSize="22"/>
+                                            <Button Content="ОБНОВИТЬ СБОРКУ" Command="{Binding UpdateModpackCommand}" Classes="primaryButton" Height="58" FontSize="18">
+                                                <Button.IsVisible>
+                                                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                                        <Binding Path="IsInstalled"/>
+                                                        <Binding Path="HasModpackUpdate"/>
+                                                    </MultiBinding>
+                                                </Button.IsVisible>
+                                            </Button>
 
                                             <Button Content="ИГРАТЬ" Command="{Binding LaunchCommand}" Classes="launchButton" Height="76" FontSize="24">
                                                 <Button.IsVisible>
                                                     <MultiBinding Converter="{x:Static BoolConverters.And}">
                                                         <Binding Path="IsInstalled"/>
                                                         <Binding Path="!HasLauncherUpdate"/>
+                                                        <Binding Path="!HasModpackUpdate"/>
                                                     </MultiBinding>
                                                 </Button.IsVisible>
                                             </Button>

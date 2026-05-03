@@ -54,6 +54,8 @@ public class ApiService
 
     public string? GetCurrentAuthToken() => _authToken;
 
+    public Uri? GetBaseAddress() => _httpClient.BaseAddress;
+
     private static async Task<AuthResponseDto?> ReadAuthResponseAsync(HttpResponseMessage response)
     {
         try

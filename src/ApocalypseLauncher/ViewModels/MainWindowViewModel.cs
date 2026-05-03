@@ -577,6 +577,13 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _hasLauncherUpdate, value);
     }
 
+    private bool _hasModpackUpdate;
+    public bool HasModpackUpdate
+    {
+        get => _hasModpackUpdate;
+        set => this.RaiseAndSetIfChanged(ref _hasModpackUpdate, value);
+    }
+
     private string _latestLauncherVersion = "";
     public string LatestLauncherVersion
     {
@@ -2563,6 +2570,7 @@ public class MainWindowViewModel : ViewModelBase
 
             // Проверяем наличие обновлений
             var hasUpdate = await _modpackUpdater.CheckForUpdatesAsync();
+            HasModpackUpdate = hasUpdate;
             if (hasUpdate)
             {
                 StatusMessage = "Доступно обновление сборки!";
@@ -2572,6 +2580,7 @@ public class MainWindowViewModel : ViewModelBase
         {
             Console.WriteLine($"[CheckModpackVersion] Error: {ex.Message}");
             ModpackVersion = "Сборка: не установлена";
+            HasModpackUpdate = false;
         }
     }
 
@@ -2595,11 +2604,16 @@ public class MainWindowViewModel : ViewModelBase
             if (success)
             {
                 StatusMessage = "Сборка успешно обновлена!";
+                HasModpackUpdate = false;
                 await CheckModpackVersionAsync();
             }
             else
             {
-                StatusMessage = "Ошибка обновления сборки";
+                if (string.IsNullOrWhiteSpace(StatusMessage) ||
+                    !StatusMessage.Contains("Ошибка", StringComparison.OrdinalIgnoreCase))
+                {
+                    StatusMessage = "Ошибка обновления сборки";
+                }
             }
 
             ProgressValue = 0;
