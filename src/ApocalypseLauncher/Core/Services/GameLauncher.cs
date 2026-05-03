@@ -13,18 +13,36 @@ public class GameLauncher
 {
     private Process? _gameProcess;
     private StreamWriter? _logWriter;
+    private readonly string _logDirectory;
     public event EventHandler<string>? OutputReceived;
     public event EventHandler? GameStarted;
     public event EventHandler<int>? GameExited;
 
     public GameLauncher()
     {
-        // Создаем лог-файл
-        var logDir = Path.Combine(Environment.CurrentDirectory, "logs");
-        Directory.CreateDirectory(logDir);
-        var logFile = Path.Combine(logDir, $"game_launch_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+        _logDirectory = ResolveLogDirectory();
+        Directory.CreateDirectory(_logDirectory);
+        var logFile = Path.Combine(_logDirectory, $"game_launch_{DateTime.Now:yyyyMMdd_HHmmss}.log");
         _logWriter = new StreamWriter(logFile, true) { AutoFlush = true };
-        Log("=== GameLauncher initialized ===");
+        Log($"=== GameLauncher initialized (logs: {_logDirectory}) ===");
+    }
+
+    private static string ResolveLogDirectory()
+    {
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (!string.IsNullOrWhiteSpace(appData))
+            {
+                return Path.Combine(appData, "SRP-RP-Launcher", "logs");
+            }
+        }
+        catch
+        {
+            // fallback below
+        }
+
+        return Path.Combine(AppContext.BaseDirectory, "logs");
     }
 
     private void Log(string message)

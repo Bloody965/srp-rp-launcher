@@ -5,13 +5,15 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ApocalypseLauncher.Core;
 
 namespace ApocalypseLauncher.Core.Services;
 
 public class LauncherUpdateService
 {
     private const string GITHUB_REPO = "Bloody965/srp-rp-launcher";
-    private const string CURRENT_VERSION = "1.0.0";
+    private static readonly string CURRENT_VERSION = ResolveCurrentVersion();
+    private static readonly string UpdateLogPath = ResolveUpdateLogPath();
     private readonly HttpClient _httpClient;
     private readonly string? _apiBaseUrl;
 
@@ -23,12 +25,14 @@ public class LauncherUpdateService
         _httpClient = new HttpClient();
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "SRP-RP-Launcher");
         _apiBaseUrl = string.IsNullOrWhiteSpace(apiBaseUrl) ? null : apiBaseUrl.TrimEnd('/');
+        WriteLog($"Init: currentVersion={CURRENT_VERSION}, apiBase={_apiBaseUrl ?? "<none>"}");
     }
 
     public async Task<(bool hasUpdate, string latestVersion, string downloadUrl)> CheckForUpdatesAsync()
     {
         try
         {
+            WriteLog("CheckForUpdates: started");
             if (!string.IsNullOrWhiteSpace(_apiBaseUrl))
             {
                 var apiUrl = $"{_apiBaseUrl}/api/launcher/version";
@@ -52,8 +56,14 @@ public class LauncherUpdateService
                     if (!string.IsNullOrWhiteSpace(downloadUrlFromApi))
                     {
                         var hasUpdateFromApi = CompareVersions(CURRENT_VERSION, latestVersionFromApi) < 0;
+                        WriteLog($"CheckForUpdates(API): current={CURRENT_VERSION}, latest={latestVersionFromApi}, hasUpdate={hasUpdateFromApi}");
                         return (hasUpdateFromApi, latestVersionFromApi, downloadUrlFromApi);
                     }
+                    WriteLog("CheckForUpdates(API): empty downloadUrl, fallback to GitHub");
+                }
+                else
+                {
+                    WriteLog($"CheckForUpdates(API): status={(int)apiResponse.StatusCode}, fallback to GitHub");
                 }
             }
 
@@ -81,15 +91,18 @@ public class LauncherUpdateService
 
             if (downloadUrl == null)
             {
+                WriteLog("CheckForUpdates(GitHub): ApocalypseLauncher.zip not found");
                 return (false, CURRENT_VERSION, "");
             }
 
             var hasUpdate = CompareVersions(CURRENT_VERSION, latestVersion) < 0;
+            WriteLog($"CheckForUpdates(GitHub): current={CURRENT_VERSION}, latest={latestVersion}, hasUpdate={hasUpdate}");
             return (hasUpdate, latestVersion, downloadUrl);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[LauncherUpdateService] Ошибка проверки обновлений: {ex.Message}");
+            WriteLog($"CheckForUpdates: error={ex}");
             return (false, CURRENT_VERSION, "");
         }
     }
@@ -98,11 +111,13 @@ public class LauncherUpdateService
     {
         try
         {
+            WriteLog($"InstallUpdate: started, url={downloadUrl}");
             StatusChanged?.Invoke(this, "Скачивание обновления...");
             ProgressChanged?.Invoke(this, 0);
 
-            var tempZip = Path.Combine(Path.GetTempPath(), "launcher_update.zip");
-            var tempDir = Path.Combine(Path.GetTempPath(), "launcher_update");
+            var uniqueId = Guid.NewGuid().ToString("N");
+            var tempZip = Path.Combine(Path.GetTempPath(), $"launcher_update_{uniqueId}.zip");
+            var tempDir = Path.Combine(Path.GetTempPath(), $"launcher_update_{uniqueId}");
 
             // Скачиваем ZIP
             using (var response = await _httpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
@@ -141,29 +156,44 @@ public class LauncherUpdateService
             // Распаковываем
             ZipFile.ExtractToDirectory(tempZip, tempDir);
             File.Delete(tempZip);
+            var updateSourceDir = NormalizeExtractedUpdateRoot(tempDir);
+            WriteLog($"InstallUpdate: extracted={tempDir}, source={updateSourceDir}");
 
             StatusChanged?.Invoke(this, "Применение обновления...");
 
-            // Создаем скрипт обновления
+            // Создаем PowerShell-скрипт обновления (robocopy надежнее xcopy на разных локалях/путях).
             var currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? "";
             var currentDir = Path.GetDirectoryName(currentExe) ?? "";
-            var updaterScript = Path.Combine(Path.GetTempPath(), "update_launcher.bat");
+            var updaterScript = Path.Combine(Path.GetTempPath(), "update_launcher.ps1");
 
-            var scriptContent = $@"@echo off
-timeout /t 2 /nobreak > nul
-echo Обновление лаунчера...
+            static string EscapePs(string value) => value.Replace("'", "''");
+            var scriptContent = $@"$ErrorActionPreference = 'Stop'
+Start-Sleep -Seconds 2
 
-xcopy ""{tempDir}\*"" ""{currentDir}"" /E /Y /I
-if errorlevel 1 (
-    echo Ошибка копирования файлов
-    pause
-    exit /b 1
-)
+$source = '{EscapePs(updateSourceDir)}'
+$target = '{EscapePs(currentDir)}'
+$exe = '{EscapePs(currentExe)}'
+$logPath = '{EscapePs(UpdateLogPath)}'
 
-rd /s /q ""{tempDir}""
-echo Обновление завершено!
-start """" ""{currentExe}""
-del ""%~f0""
+if (-not (Test-Path -LiteralPath $source)) {{
+    throw ""Update source folder not found: $source""
+}}
+if (-not (Test-Path -LiteralPath $target)) {{
+    New-Item -ItemType Directory -Path $target -Force | Out-Null
+}}
+
+# /E - copy subdirs including empty, /R /W - retry policy, /NFL /NDL - cleaner output
+& robocopy $source $target /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
+$rc = $LASTEXITCODE
+if ($rc -ge 8) {{
+    Add-Content -LiteralPath $logPath -Value ""[$(Get-Date -Format o)] InstallUpdate(script): robocopy failed rc=$rc source=$source target=$target""
+    throw ""Robocopy failed with exit code $rc""
+}}
+Add-Content -LiteralPath $logPath -Value ""[$(Get-Date -Format o)] InstallUpdate(script): robocopy ok rc=$rc source=$source target=$target""
+
+Remove-Item -LiteralPath $source -Recurse -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath $exe -WorkingDirectory $target
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 ";
 
             File.WriteAllText(updaterScript, scriptContent);
@@ -171,12 +201,14 @@ del ""%~f0""
             // Запускаем скрипт обновления
             var psi = new ProcessStartInfo
             {
-                FileName = updaterScript,
-                UseShellExecute = true,
-                CreateNoWindow = false
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{updaterScript}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
 
             Process.Start(psi);
+            WriteLog("InstallUpdate: updater script started, shutting down current process");
 
             // Закрываем текущий лаунчер
             Environment.Exit(0);
@@ -187,25 +219,104 @@ del ""%~f0""
         {
             Console.WriteLine($"[LauncherUpdateService] Ошибка установки обновления: {ex.Message}");
             StatusChanged?.Invoke(this, $"Ошибка: {ex.Message}");
+            WriteLog($"InstallUpdate: error={ex}");
             return false;
         }
     }
 
     private int CompareVersions(string current, string latest)
     {
-        var currentParts = current.Split('.');
-        var latestParts = latest.Split('.');
+        if (TryCompareAsPackedNumeric(current, latest, out var packedResult))
+        {
+            return packedResult;
+        }
+
+        var currentParts = current.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        var latestParts = latest.Split('.', StringSplitOptions.RemoveEmptyEntries);
 
         for (int i = 0; i < Math.Max(currentParts.Length, latestParts.Length); i++)
         {
-            var currentPart = i < currentParts.Length ? int.Parse(currentParts[i]) : 0;
-            var latestPart = i < latestParts.Length ? int.Parse(latestParts[i]) : 0;
+            var currentPart = i < currentParts.Length && int.TryParse(currentParts[i], out var c) ? c : 0;
+            var latestPart = i < latestParts.Length && int.TryParse(latestParts[i], out var l) ? l : 0;
 
             if (currentPart < latestPart) return -1;
             if (currentPart > latestPart) return 1;
         }
 
         return 0;
+    }
+
+    private static bool TryCompareAsPackedNumeric(string current, string latest, out int result)
+    {
+        result = 0;
+        var currentPackedRaw = current.Replace(".", string.Empty).Trim();
+        var latestPackedRaw = latest.Replace(".", string.Empty).Trim();
+        if (latestPackedRaw.StartsWith('v') || latestPackedRaw.StartsWith('V'))
+        {
+            latestPackedRaw = latestPackedRaw[1..];
+        }
+
+        if (!int.TryParse(currentPackedRaw, out var currentPacked) ||
+            !int.TryParse(latestPackedRaw, out var latestPacked))
+        {
+            return false;
+        }
+
+        result = currentPacked.CompareTo(latestPacked);
+        return true;
+    }
+
+    private static string ResolveCurrentVersion() => LauncherVersionInfo.GetSemanticVersion();
+
+    private static string ResolveUpdateLogPath()
+    {
+        try
+        {
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var logsDir = Path.Combine(appData, "SRP-RP-Launcher", "logs");
+            Directory.CreateDirectory(logsDir);
+            return Path.Combine(logsDir, "launcher_update.log");
+        }
+        catch
+        {
+            return Path.Combine(Path.GetTempPath(), "launcher_update.log");
+        }
+    }
+
+    private static void WriteLog(string message)
+    {
+        try
+        {
+            File.AppendAllText(UpdateLogPath, $"[{DateTime.Now:O}] {message}{Environment.NewLine}");
+        }
+        catch
+        {
+            // ignore logging failures
+        }
+    }
+
+    private static string NormalizeExtractedUpdateRoot(string extractedDir)
+    {
+        try
+        {
+            var files = Directory.GetFiles(extractedDir);
+            if (files.Length > 0)
+            {
+                return extractedDir;
+            }
+
+            var subDirs = Directory.GetDirectories(extractedDir);
+            if (subDirs.Length == 1)
+            {
+                return subDirs[0];
+            }
+        }
+        catch
+        {
+            // ignore and return original
+        }
+
+        return extractedDir;
     }
 
     private static string TryReadSessionToken()

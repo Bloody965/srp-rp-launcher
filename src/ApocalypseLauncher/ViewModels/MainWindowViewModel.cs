@@ -121,6 +121,7 @@ public class MainWindowViewModel : ViewModelBase
 
         // Загружаем настройки RAM
         LoadRamSettings();
+        LoadSkinModelPreference();
 
         // Автоматический вход при запуске
         _ = TryAutoLoginAsync();
@@ -362,6 +363,7 @@ public class MainWindowViewModel : ViewModelBase
     }
 
     public string AllocatedRamText => $"{_allocatedRamGB} GB";
+    public string LauncherVersionText => $"v{LauncherVersionInfo.GetSemanticVersion()}";
 
     private bool _isServerOnline = false;
     public bool IsServerOnline
@@ -591,6 +593,10 @@ public class MainWindowViewModel : ViewModelBase
         set => this.RaiseAndSetIfChanged(ref _isFullscreen, value);
     }
 
+    private bool _suspendSkinModelPreferenceSave;
+    private bool _isSyncingSkinTypeToServer;
+    private string? _pendingSkinTypeSync;
+
     private bool _isClassicSkin = true;
     public bool IsClassicSkin
     {
@@ -606,6 +612,12 @@ public class MainWindowViewModel : ViewModelBase
             {
                 _isSlimSkin = !value;
                 this.RaisePropertyChanged(nameof(IsSlimSkin));
+            }
+
+            if (!_suspendSkinModelPreferenceSave)
+            {
+                SaveSkinModelPreference();
+                QueueSkinTypeSyncToServer();
             }
         }
     }
@@ -625,6 +637,12 @@ public class MainWindowViewModel : ViewModelBase
             {
                 _isClassicSkin = !value;
                 this.RaisePropertyChanged(nameof(IsClassicSkin));
+            }
+
+            if (!_suspendSkinModelPreferenceSave)
+            {
+                SaveSkinModelPreference();
+                QueueSkinTypeSyncToServer();
             }
         }
     }
@@ -2842,12 +2860,10 @@ public class MainWindowViewModel : ViewModelBase
                 // Копируем скин в директорию Minecraft для отображения в игре
                 await CopySkinToMinecraftAsync(localSkinPath);
 
-                var cachedSkinType = LoadLocalSkinType();
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     CurrentSkinPath = localSkinPath;
-                    ApplySkinType(cachedSkinType);
-                    SkinStatus = $"Скин загружен из кэша ({cachedSkinType})";
+                    SkinStatus = "Скин загружен из кэша";
                 });
             }
 
@@ -2882,8 +2898,7 @@ public class MainWindowViewModel : ViewModelBase
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     CurrentSkinPath = localSkinPath;
-                    ApplySkinType(result.Data.SkinType);
-                    SkinStatus = $"Скин загружен ({result.Data.SkinType})";
+                    SkinStatus = "Скин загружен";
                 });
 
                 Console.WriteLine($"[LoadCurrentSkinAsync] Скин загружен с сервера: {result.Data.SkinType}");
@@ -2911,12 +2926,10 @@ public class MainWindowViewModel : ViewModelBase
                 {
                     await CopySkinToMinecraftAsync(localSkinPath);
                     await LoadSkinPreviewAsync(localSkinPath);
-                    var cachedSkinType = LoadLocalSkinType();
                     await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         CurrentSkinPath = localSkinPath;
-                        ApplySkinType(cachedSkinType);
-                        SkinStatus = $"Скин загружен из кэша (офлайн, {cachedSkinType})";
+                        SkinStatus = "Скин загружен из кэша (офлайн)";
                     });
                 }
                 catch (Exception cacheEx)
@@ -2974,32 +2987,131 @@ public class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private void ApplySkinType(string skinType)
+    private static string GetSkinModelPreferencePath()
     {
-        IsClassicSkin = skinType != "slim";
-        IsSlimSkin = skinType == "slim";
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var launcherDir = Path.Combine(appData, "SRP-RP-Launcher");
+        return Path.Combine(launcherDir, "skin_model_preference.txt");
     }
 
-    private string LoadLocalSkinType()
+    private void LoadSkinModelPreference()
     {
         try
         {
-            var skinTypePath = GetLocalSkinTypePath();
-            if (File.Exists(skinTypePath))
+            var path = GetSkinModelPreferencePath();
+            if (!File.Exists(path))
             {
-                var skinType = File.ReadAllText(skinTypePath).Trim().ToLowerInvariant();
-                if (skinType == "slim")
+                return;
+            }
+
+            var raw = File.ReadAllText(path).Trim().ToLowerInvariant();
+            if (raw != "slim" && raw != "classic")
+            {
+                return;
+            }
+
+            _suspendSkinModelPreferenceSave = true;
+            try
+            {
+                if (raw == "slim")
                 {
-                    return "slim";
+                    IsSlimSkin = true;
                 }
+                else
+                {
+                    IsClassicSkin = true;
+                }
+            }
+            finally
+            {
+                _suspendSkinModelPreferenceSave = false;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[LoadLocalSkinType] Ошибка: {ex.Message}");
+            Console.WriteLine($"[LoadSkinModelPreference] Ошибка: {ex.Message}");
+        }
+    }
+
+    private void SaveSkinModelPreference()
+    {
+        try
+        {
+            var path = GetSkinModelPreferencePath();
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.WriteAllText(path, IsSlimSkin ? "slim" : "classic");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[SaveSkinModelPreference] Ошибка: {ex.Message}");
+        }
+    }
+
+    private void QueueSkinTypeSyncToServer()
+    {
+        if (_suspendSkinModelPreferenceSave || !IsLoggedIn || string.IsNullOrWhiteSpace(CurrentSkinPath))
+        {
+            return;
         }
 
-        return "classic";
+        _pendingSkinTypeSync = IsSlimSkin ? "slim" : "classic";
+        if (_isSyncingSkinTypeToServer)
+        {
+            return;
+        }
+
+        _ = SyncPendingSkinTypeToServerAsync();
+    }
+
+    private async Task SyncPendingSkinTypeToServerAsync()
+    {
+        _isSyncingSkinTypeToServer = true;
+        try
+        {
+            while (!string.IsNullOrWhiteSpace(_pendingSkinTypeSync))
+            {
+                var skinType = _pendingSkinTypeSync;
+                _pendingSkinTypeSync = null;
+                if (string.IsNullOrWhiteSpace(skinType))
+                {
+                    continue;
+                }
+
+                if (!IsLoggedIn || string.IsNullOrWhiteSpace(CurrentSkinPath))
+                {
+                    continue;
+                }
+
+                var success = await _skinService.UpdateCurrentSkinTypeAsync(skinType);
+                if (success)
+                {
+                    SaveLocalSkinType(skinType);
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        SkinStatus = $"Тип скина обновлен ({skinType})";
+                    });
+                }
+                else
+                {
+                    await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(_skinService.LastErrorMessage))
+                        {
+                            SkinStatus = $"Не удалось обновить тип скина: {_skinService.LastErrorMessage}";
+                        }
+                    });
+                }
+            }
+        }
+        finally
+        {
+            _isSyncingSkinTypeToServer = false;
+        }
     }
 
     private void DeleteLocalSkinType()
@@ -3249,6 +3361,12 @@ public class MainWindowViewModel : ViewModelBase
     {
         try
         {
+            if (!_skinService.ValidateSkinFile(filePath, out var validationError))
+            {
+                SkinStatus = validationError ?? "Некорректный файл скина";
+                return;
+            }
+
             var skinType = IsClassicSkin ? "classic" : "slim";
             var success = await _skinService.UploadSkinAsync(filePath, skinType);
 

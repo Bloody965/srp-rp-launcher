@@ -482,6 +482,39 @@ public class ApiService
         }
     }
 
+    public async Task<ApiResponse<SkinInfo>> UpdateCurrentSkinTypeAsync(string skinType)
+    {
+        try
+        {
+            var payload = new { skinType };
+            var response = await _httpClient.PutAsJsonAsync("/api/skins/current/type", payload);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<SkinUploadResponse>();
+                if (result?.Success == true && result.Skin != null)
+                {
+                    return ApiResponse<SkinInfo>.Success(new SkinInfo
+                    {
+                        SkinType = result.Skin.SkinType,
+                        DownloadUrl = result.Skin.DownloadUrl,
+                        FileHash = result.Skin.FileHash,
+                        UploadedAt = result.Skin.UploadedAt
+                    });
+                }
+
+                return ApiResponse<SkinInfo>.Failure(result?.Message ?? "Не удалось обновить модель скина");
+            }
+
+            var error = await response.Content.ReadFromJsonAsync<SkinUploadResponse>();
+            return ApiResponse<SkinInfo>.Failure(error?.Message ?? "Не удалось обновить модель скина");
+        }
+        catch (Exception ex)
+        {
+            return ApiResponse<SkinInfo>.Failure($"Ошибка подключения: {ex.Message}");
+        }
+    }
+
     public async Task<byte[]?> DownloadSkinAsync(int userId)
     {
         try

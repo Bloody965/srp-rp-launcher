@@ -212,6 +212,32 @@ public class SkinService
         }
     }
 
+    public async Task<bool> UpdateCurrentSkinTypeAsync(string skinType)
+    {
+        try
+        {
+            LastErrorMessage = null;
+            StatusChanged?.Invoke(this, "Обновление типа скина...");
+
+            var result = await _apiService.UpdateCurrentSkinTypeAsync(skinType);
+            if (result.IsSuccess)
+            {
+                StatusChanged?.Invoke(this, "Тип скина обновлен");
+                return true;
+            }
+
+            LastErrorMessage = result.ErrorMessage ?? "Не удалось обновить тип скина";
+            StatusChanged?.Invoke(this, $"Ошибка: {LastErrorMessage}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            LastErrorMessage = ex.Message;
+            StatusChanged?.Invoke(this, $"Ошибка: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>
     /// Валидация файла скина
     /// </summary>

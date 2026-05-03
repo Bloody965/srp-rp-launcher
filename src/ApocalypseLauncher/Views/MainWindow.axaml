@@ -729,10 +729,10 @@
             </ScrollViewer>
 
             <Border Grid.Row="2" Padding="28,18" Classes="chromePanel" Margin="20,0,20,18" CornerRadius="12">
-                <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="18">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="18">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <TextBlock Text="SRP-RP Launcher" FontSize="13" FontWeight="Bold" Foreground="#D3924D"/>
-                        <TextBlock Text="v1.0" Classes="captionText"/>
+                        <TextBlock Text="{Binding LauncherVersionText}" Classes="captionText" TextWrapping="NoWrap"/>
                     </StackPanel>
 
                     <TextBlock Grid.Column="1" Text="Post-apocalypse web palette • Forge 1.20.1" Classes="captionText" HorizontalAlignment="Center" VerticalAlignment="Center"/>

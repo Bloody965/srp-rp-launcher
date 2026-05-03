@@ -31,22 +31,38 @@ public class SkinRenderer
         var center = new SKPoint(width / 2f, height * 0.82f);
 
         var textures = BuildTextures(skinBitmap, effectiveSlimModel, isLegacySkin);
+        ModelTextures? overlayTextures = null;
+        if (!isLegacySkin)
+        {
+            overlayTextures = BuildOverlayTextures(skinBitmap, effectiveSlimModel);
+        }
+
         try
         {
-            var parts = BuildParts(effectiveSlimModel ? 3f : 4f, textures);
+            var armWidth = effectiveSlimModel ? 3f : 4f;
+            var parts = BuildPartsWithOverlays(armWidth, textures, overlayTextures);
             var faces = new List<RenderedFace>(parts.Count * 6);
 
             foreach (var part in parts)
             {
-                faces.Add(CreateRenderedFace(CreateFrontFace(part.Box), part.Textures.Front, 1.00f, yaw, pitch, scale, center));
-                faces.Add(CreateRenderedFace(CreateBackFace(part.Box), part.Textures.Back, 0.76f, yaw, pitch, scale, center));
-                faces.Add(CreateRenderedFace(CreateRightFace(part.Box), part.Textures.Right, 0.84f, yaw, pitch, scale, center));
-                faces.Add(CreateRenderedFace(CreateLeftFace(part.Box), part.Textures.Left, 0.84f, yaw, pitch, scale, center));
-                faces.Add(CreateRenderedFace(CreateTopFace(part.Box), part.Textures.Top, 1.08f, yaw, pitch, scale, center));
-                faces.Add(CreateRenderedFace(CreateBottomFace(part.Box), part.Textures.Bottom, 0.72f, yaw, pitch, scale, center));
+                faces.Add(CreateRenderedFace(CreateFrontFace(part.Box), part.Textures.Front, 1.00f, yaw, pitch, scale, center, part.IsOverlay));
+                faces.Add(CreateRenderedFace(CreateBackFace(part.Box), part.Textures.Back, 0.76f, yaw, pitch, scale, center, part.IsOverlay));
+                faces.Add(CreateRenderedFace(CreateRightFace(part.Box), part.Textures.Right, 0.84f, yaw, pitch, scale, center, part.IsOverlay));
+                faces.Add(CreateRenderedFace(CreateLeftFace(part.Box), part.Textures.Left, 0.84f, yaw, pitch, scale, center, part.IsOverlay));
+                faces.Add(CreateRenderedFace(CreateTopFace(part.Box), part.Textures.Top, 1.08f, yaw, pitch, scale, center, part.IsOverlay));
+                faces.Add(CreateRenderedFace(CreateBottomFace(part.Box), part.Textures.Bottom, 0.72f, yaw, pitch, scale, center, part.IsOverlay));
             }
 
-            faces.Sort((a, b) => a.Depth.CompareTo(b.Depth));
+            faces.Sort((a, b) =>
+            {
+                var d = a.Depth.CompareTo(b.Depth);
+                if (d != 0)
+                {
+                    return d;
+                }
+
+                return a.IsOverlay.CompareTo(b.IsOverlay);
+            });
 
             using var paint = new SKPaint
             {
@@ -63,6 +79,10 @@ public class SkinRenderer
         finally
         {
             DisposeTextures(textures);
+            if (overlayTextures != null)
+            {
+                DisposeTextures(overlayTextures.Value);
+            }
         }
 
         using var image = surface.Snapshot();
@@ -83,17 +103,112 @@ public class SkinRenderer
         return skinBitmap.Height > 0 && skinBitmap.Width > 0 && skinBitmap.Height <= (skinBitmap.Width / 2);
     }
 
-    private static List<ModelPart> BuildParts(float armWidth, ModelTextures textures)
+    private const float OuterLayerPad = 0.25f;
+
+    private static Box3 InflateBox(Box3 box, float pad)
     {
-        return new List<ModelPart>
+        return new Box3(box.X - pad, box.Y - pad, box.Z - pad, box.Width + 2f * pad, box.Height + 2f * pad, box.Depth + 2f * pad);
+    }
+
+    private static List<ModelPart> BuildPartsWithOverlays(float armWidth, ModelTextures baseTextures, ModelTextures? overlayTextures)
+    {
+        var rightLeg = new Box3(-4f, 0f, -2f, 4f, 12f, 4f);
+        var leftLeg = new Box3(0f, 0f, -2f, 4f, 12f, 4f);
+        var body = new Box3(-4f, 12f, -2f, 8f, 12f, 4f);
+        var rightArm = new Box3(-4f - armWidth, 12f, -2f, armWidth, 12f, 4f);
+        var leftArm = new Box3(4f, 12f, -2f, armWidth, 12f, 4f);
+        var head = new Box3(-4f, 24f, -4f, 8f, 8f, 8f);
+
+        var parts = new List<ModelPart>(overlayTextures != null ? 12 : 6)
         {
-            new(new Box3(-4f, 0f, -2f, 4f, 12f, 4f), textures.RightLeg),
-            new(new Box3(0f, 0f, -2f, 4f, 12f, 4f), textures.LeftLeg),
-            new(new Box3(-4f, 12f, -2f, 8f, 12f, 4f), textures.Body),
-            new(new Box3(-4f - armWidth, 12f, -2f, armWidth, 12f, 4f), textures.RightArm),
-            new(new Box3(4f, 12f, -2f, armWidth, 12f, 4f), textures.LeftArm),
-            new(new Box3(-4f, 24f, -4f, 8f, 8f, 8f), textures.Head)
+            new(rightLeg, baseTextures.RightLeg, false),
+            new(leftLeg, baseTextures.LeftLeg, false),
+            new(body, baseTextures.Body, false),
+            new(rightArm, baseTextures.RightArm, false),
+            new(leftArm, baseTextures.LeftArm, false),
+            new(head, baseTextures.Head, false)
         };
+
+        if (overlayTextures != null)
+        {
+            var o = overlayTextures.Value;
+            parts.Add(new(InflateBox(rightLeg, OuterLayerPad), o.RightLeg, true));
+            parts.Add(new(InflateBox(leftLeg, OuterLayerPad), o.LeftLeg, true));
+            parts.Add(new(InflateBox(body, OuterLayerPad), o.Body, true));
+            parts.Add(new(InflateBox(rightArm, OuterLayerPad), o.RightArm, true));
+            parts.Add(new(InflateBox(leftArm, OuterLayerPad), o.LeftArm, true));
+            parts.Add(new(InflateBox(head, OuterLayerPad), o.Head, true));
+        }
+
+        return parts;
+    }
+
+    /// <summary>Второй слой скина (шляпа, рукава, штаны и т.д.), UV как в Java / skinview3d.</summary>
+    private static ModelTextures BuildOverlayTextures(SKBitmap skinBitmap, bool isSlimModel)
+    {
+        var armFrontWidth = isSlimModel ? 3 : 4;
+        var rightArmBackX = isSlimModel ? 51 : 52;
+        var rightArmRightX = isSlimModel ? 47 : 48;
+        var rightArmBottomX = isSlimModel ? 47 : 48;
+        var leftArmBackX = isSlimModel ? 59 : 60;
+        var leftArmRightX = isSlimModel ? 55 : 56;
+        var leftArmBottomX = isSlimModel ? 55 : 56;
+
+        var head = new FaceTextures(
+            ExtractTexture(skinBitmap, 40, 8, 8, 8, 8, 8),
+            ExtractTexture(skinBitmap, 56, 8, 8, 8, 8, 8),
+            ExtractTexture(skinBitmap, 48, 8, 8, 8, 8, 8),
+            ExtractTexture(skinBitmap, 32, 8, 8, 8, 8, 8),
+            ExtractTexture(skinBitmap, 40, 0, 8, 8, 8, 8),
+            ExtractTexture(skinBitmap, 48, 0, 8, 8, 8, 8));
+
+        var body = new FaceTextures(
+            ExtractTexture(skinBitmap, 20, 36, 8, 12, 8, 12),
+            ExtractTexture(skinBitmap, 32, 36, 8, 12, 8, 12),
+            ExtractTexture(skinBitmap, 28, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 16, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 20, 32, 8, 4, 8, 4),
+            ExtractTexture(skinBitmap, 28, 32, 8, 4, 8, 4));
+
+        var rightArm = new FaceTextures(
+            ExtractTexture(skinBitmap, 44, 36, armFrontWidth, 12, armFrontWidth, 12),
+            ExtractTexture(skinBitmap, rightArmBackX, 36, armFrontWidth, 12, armFrontWidth, 12),
+            ExtractTexture(skinBitmap, rightArmRightX, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 40, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 44, 32, armFrontWidth, 4, armFrontWidth, 4),
+            ExtractTexture(skinBitmap, rightArmBottomX, 32, armFrontWidth, 4, armFrontWidth, 4));
+
+        var rightLeg = new FaceTextures(
+            ExtractTexture(skinBitmap, 4, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 12, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 8, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 0, 36, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 4, 32, 4, 4, 4, 4),
+            ExtractTexture(skinBitmap, 8, 32, 4, 4, 4, 4));
+
+        var leftArm = new FaceTextures(
+            ExtractTexture(skinBitmap, 52, 52, armFrontWidth, 12, armFrontWidth, 12),
+            ExtractTexture(skinBitmap, leftArmBackX, 52, armFrontWidth, 12, armFrontWidth, 12),
+            ExtractTexture(skinBitmap, leftArmRightX, 52, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 48, 52, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 52, 48, armFrontWidth, 4, armFrontWidth, 4),
+            ExtractTexture(skinBitmap, leftArmBottomX, 48, armFrontWidth, 4, armFrontWidth, 4));
+
+        var leftLeg = new FaceTextures(
+            ExtractTexture(skinBitmap, 4, 52, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 12, 52, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 8, 52, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 0, 52, 4, 12, 4, 12),
+            ExtractTexture(skinBitmap, 4, 48, 4, 4, 4, 4),
+            ExtractTexture(skinBitmap, 8, 48, 4, 4, 4, 4));
+
+        return new ModelTextures(
+            Head: head,
+            Body: body,
+            RightArm: rightArm,
+            LeftArm: leftArm,
+            RightLeg: rightLeg,
+            LeftLeg: leftLeg);
     }
 
     private static ModelTextures BuildTextures(SKBitmap skinBitmap, bool isSlimModel, bool isLegacySkin)
@@ -217,7 +332,7 @@ public class SkinRenderer
         face.Bottom.Dispose();
     }
 
-    private static RenderedFace CreateRenderedFace(Face3 face, SKBitmap texture, float brightness, float yaw, float pitch, float scale, SKPoint center)
+    private static RenderedFace CreateRenderedFace(Face3 face, SKBitmap texture, float brightness, float yaw, float pitch, float scale, SKPoint center, bool isOverlay)
     {
         var points = new SKPoint[4];
         float depth = 0f;
@@ -229,7 +344,7 @@ public class SkinRenderer
             depth += rotated.Z;
         }
 
-        return new RenderedFace(points, texture, depth / face.Corners.Length, brightness);
+        return new RenderedFace(points, texture, depth / face.Corners.Length, brightness, isOverlay);
     }
 
     private static Vector3 Rotate(Vector3 point, float yaw, float pitch)
@@ -395,6 +510,6 @@ public class SkinRenderer
     private readonly record struct Face3(Vector3[] Corners);
     private readonly record struct FaceTextures(SKBitmap Front, SKBitmap Back, SKBitmap Right, SKBitmap Left, SKBitmap Top, SKBitmap Bottom);
     private readonly record struct ModelTextures(FaceTextures Head, FaceTextures Body, FaceTextures RightArm, FaceTextures LeftArm, FaceTextures RightLeg, FaceTextures LeftLeg);
-    private readonly record struct ModelPart(Box3 Box, FaceTextures Textures);
-    private readonly record struct RenderedFace(SKPoint[] Points, SKBitmap Texture, float Depth, float Brightness);
+    private readonly record struct ModelPart(Box3 Box, FaceTextures Textures, bool IsOverlay);
+    private readonly record struct RenderedFace(SKPoint[] Points, SKBitmap Texture, float Depth, float Brightness, bool IsOverlay);
 }

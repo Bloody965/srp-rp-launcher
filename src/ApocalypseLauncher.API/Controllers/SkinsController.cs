@@ -233,6 +233,49 @@ public class SkinsController : ControllerBase
         return File(skin.FileData, "image/png", $"skin_{userId}.png");
     }
 
+    [HttpPut("current/type")]
+    public async Task<ActionResult> UpdateCurrentSkinType([FromBody] UpdateSkinTypeRequest request)
+    {
+        var userId = GetUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var skinType = request?.SkinType?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(skinType) || !_validationService.IsValidSkinType(skinType))
+        {
+            return BadRequest(new { success = false, message = "Неверный тип скина. Используйте 'classic' или 'slim'." });
+        }
+
+        var skin = await _context.PlayerSkins
+            .Where(s => s.UserId == userId.Value && s.IsActive)
+            .OrderByDescending(s => s.UploadedAt)
+            .FirstOrDefaultAsync();
+
+        if (skin == null)
+        {
+            return NotFound(new { success = false, message = "Активный скин не найден" });
+        }
+
+        skin.SkinType = skinType;
+        await _context.SaveChangesAsync();
+
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        await LogAction(userId.Value, "SKIN_TYPE_UPDATED", $"Type: {skinType}", ip);
+
+        return Ok(new
+        {
+            success = true,
+            message = "Тип скина обновлен",
+            skin = new
+            {
+                skinType = skin.SkinType,
+                downloadUrl = $"/api/skins/download/{userId}?v={skin.FileHash}",
+                fileHash = skin.FileHash,
+                uploadedAt = skin.UploadedAt
+            }
+        });
+    }
+
     [HttpDelete("current")]
     public async Task<ActionResult> DeleteCurrentSkin()
     {
@@ -427,6 +470,11 @@ public class SkinsController : ControllerBase
         using var sha256 = SHA256.Create();
         var hash = await sha256.ComputeHashAsync(stream);
         return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+    }
+
+    public sealed class UpdateSkinTypeRequest
+    {
+        public string SkinType { get; set; } = "classic";
     }
 
     [HttpPost("admin/reset-rate-limit/{userId}")]
