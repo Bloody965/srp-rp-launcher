@@ -106,10 +106,10 @@ dotnet publish -c Release -r win-x64 --self-contained
 ### Переменные окружения (для production)
 
 ```bash
-export Jwt__SecretKey="ваш_секретный_ключ"
-export ConnectionStrings__DATABASE_URL="postgresql://..."
-# или полная строка Npgsql (удобно для Amvera и др.):
-# export ConnectionStrings__DefaultConnection="Host=...;Port=5432;Database=...;Username=...;Password=...;SSL Mode=Prefer;Trust Server Certificate=true"
+export JWT_SECRET_KEY="ваш_секретный_ключ"
+# или export Jwt__SecretKey="..." если панель разрешает "__"
+export POSTGRES_CONNECTION_STRING="Host=...;Port=5432;Database=...;Username=...;Password=...;SSL Mode=Prefer;Trust Server Certificate=true"
+# или export DATABASE_URL="postgresql://..."
 export MinecraftServer__Address="ваш_ip"
 export MinecraftServer__Port="25565"
 ```
@@ -121,9 +121,11 @@ export MinecraftServer__Port="25565"
 Если в панели Amvera задан только **SQLite** из `appsettings` (`Data Source=...`), база живёт в контейнере и при пересборке/смене тома **данные могут пропадать** — тогда «ломаются» аккаунты, UUID и скины в Yggdrasil.
 
 1. Создайте в Amvera кластер **PostgreSQL** (тариф не ниже «Начальный», как рекомендует Amvera).
-2. В **проекте API** добавьте переменную окружения **`ConnectionStrings__DefaultConnection`** со строкой подключения **Npgsql**, например:
-
-`Host=amvera-<username>-cnpg-<project_name>-rw;Port=5432;Database=<имя_бд>;Username=<пользователь>;Password=<пароль>;SSL Mode=Prefer;Trust Server Certificate=true`
+2. В **проекте API** задайте строку PostgreSQL. В Amvera **имя переменной** часто должно быть только из латиницы, цифр и `_` (без двойного `__`). Используйте одно из имён:
+   - **`POSTGRES_CONNECTION_STRING`** — полная строка **Npgsql** (рекомендуется для Amvera), например:  
+     `Host=amvera-<username>-cnpg-<project_name>-rw;Port=5432;Database=<имя_бд>;Username=<пользователь>;Password=<пароль>;SSL Mode=Prefer;Trust Server Certificate=true`
+   - либо **`DATABASE_URL`** в виде `postgresql://user:pass@host:5432/dbname`
+   - либо **`ConnectionStrings__DefaultConnection`** — только если панель **разрешает** двойное подчёркивание в имени
 
 Хост **`-rw`** (чтение/запись) и имя БД смотрите в разделе «Инфо» у кластера PostgreSQL в панели Amvera. Имя `postgres` и пользователь `postgres` зарезервированы — используйте свои имя БД и пользователя, которые вы задали при создании кластера.
 

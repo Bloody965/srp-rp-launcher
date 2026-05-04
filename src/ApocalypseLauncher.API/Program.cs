@@ -39,7 +39,8 @@ Console.WriteLine($"[Startup] Binding URLs: {urls}");
 var jwtSecret = builder.Configuration["Jwt:SecretKey"]
     ?? Environment.GetEnvironmentVariable("Jwt__SecretKey")
     ?? Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
-    ?? Environment.GetEnvironmentVariable("JWT_SECRET");
+    ?? Environment.GetEnvironmentVariable("JWT_SECRET")
+    ?? Environment.GetEnvironmentVariable("JWT_SECRETKEY");
 
 Console.WriteLine($"[Startup] Environment: {builder.Environment.EnvironmentName}");
 Console.WriteLine($"[Startup] JWT Secret configured: {!string.IsNullOrWhiteSpace(jwtSecret)}");
@@ -51,7 +52,7 @@ if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_
     if (!isDevelopment)
     {
         Console.WriteLine("[ERROR] JWT SecretKey is not configured for production.");
-        Console.WriteLine("[ERROR] Checked variables: Jwt:SecretKey, Jwt__SecretKey, JWT_SECRET_KEY, JWT_SECRET");
+        Console.WriteLine("[ERROR] Checked variables: Jwt:SecretKey, Jwt__SecretKey, JWT_SECRET_KEY, JWT_SECRET, JWT_SECRETKEY");
         throw new InvalidOperationException("JWT SecretKey is not configured for production.");
     }
 
@@ -59,11 +60,13 @@ if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_
     Console.WriteLine("[Startup] Using temporary JWT secret for development environment.");
 }
 
-// PostgreSQL: DATABASE_URL (Railway/Heroku) или ConnectionStrings__DefaultConnection (Amvera: Host=...;...)
+// PostgreSQL: DATABASE_URL (Railway) или POSTGRES_CONNECTION_STRING (Amvera: имя без двойного "__")
 var databaseUrl = builder.Configuration.GetConnectionString("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_PRIVATE_URL")
-    ?? Environment.GetEnvironmentVariable("PGDATABASE_URL");
+    ?? Environment.GetEnvironmentVariable("PGDATABASE_URL")
+    ?? Environment.GetEnvironmentVariable("POSTGRES_CONNECTION_STRING")
+    ?? Environment.GetEnvironmentVariable("POSTGRES_URL");
 
 var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 
