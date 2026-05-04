@@ -52,6 +52,10 @@ public class YggdrasilController : ControllerBase
     private string GetPublicBaseUrl()
     {
         var configured = _configuration["BaseUrl"]?.Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(configured))
+            configured = Environment.GetEnvironmentVariable("BASE_URL")?.Trim().TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(configured))
+            configured = Environment.GetEnvironmentVariable("API_PUBLIC_BASE_URL")?.Trim().TrimEnd('/');
         if (!string.IsNullOrWhiteSpace(configured))
             return configured;
 
