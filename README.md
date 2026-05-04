@@ -33,7 +33,7 @@
 
 В корне репозитория: **`Dockerfile`**, **`railway.json`**, **`docker-entrypoint.sh`** (слушает порт из переменной **`PORT`**). Пошаговая инструкция: **[RAILWAY_DEPLOY.md](RAILWAY_DEPLOY.md)**. Скрипты: **`scripts/build-api-docker.ps1`**, **`scripts/New-JwtSecret.ps1`**, шаблон переменных **`scripts/railway-variables.example.env`**.
 
-**Один URL API:** в лаунчере класс **`SrpProjectEndpoints`** (`src/ApocalypseLauncher/Core/SrpProjectEndpoints.cs`) — дефолт совпадает с сайтом. Переопределение на машине игрока: переменная окружения **`SRP_API_BASE_URL`**. На Railway для строгого CORS к сайту: **`Cors__AllowedOrigins__0`** или **`SITE_PUBLIC_ORIGIN`**.
+**Один URL API:** в лаунчере **`SrpProjectEndpoints`** (`src/ApocalypseLauncher/Core/SrpProjectEndpoints.cs`) — встроенный дефолт указывает на прод API; переопределение без пересборки: **`SRP_API_BASE_URL`** или файл **`%AppData%\\SRP-RP-Launcher\\api-base.url`** (одна строка, например `https://ваш-api.amvera.io`). Превью скина в лаунчере подтягивает `/api/skins/...` с текущего хоста, даже если API когда-то вернул URL со старым доменом.
 
 ### Требования
 - .NET 8.0 SDK

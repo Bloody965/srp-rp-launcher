@@ -1323,12 +1323,20 @@ public class MainWindowViewModel : ViewModelBase
             return string.Empty;
         }
 
+        var baseUrl = ApiBaseUrl.TrimEnd('/');
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
         {
+            var configuredBase = new Uri(baseUrl + "/", UriKind.Absolute);
+            // API когда-то отдал ссылку со старым хостом (Railway и т.д.) — тянем скин с текущего ApiBaseUrl.
+            if (!string.Equals(absolute.Host, configuredBase.Host, StringComparison.OrdinalIgnoreCase)
+                && absolute.AbsolutePath.StartsWith("/api/skins", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{baseUrl}{absolute.PathAndQuery}";
+            }
+
             return absolute.ToString();
         }
 
-        var baseUrl = ApiBaseUrl.TrimEnd('/');
         if (!value.StartsWith('/'))
         {
             value = "/" + value;
