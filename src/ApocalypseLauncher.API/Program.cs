@@ -59,42 +59,43 @@ if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret == "CHANGE_THIS_TO_RANDOM_
     Console.WriteLine("[Startup] Using temporary JWT secret for development environment.");
 }
 
-// Пробуем разные варианты переменных Railway PostgreSQL
+// PostgreSQL: DATABASE_URL (Railway/Heroku) или ConnectionStrings__DefaultConnection (Amvera: Host=...;...)
 var databaseUrl = builder.Configuration.GetConnectionString("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_PRIVATE_URL")
     ?? Environment.GetEnvironmentVariable("PGDATABASE_URL");
 
-Console.WriteLine($"[Startup] DATABASE_URL configured: {!string.IsNullOrEmpty(databaseUrl)}");
-Console.WriteLine($"[Startup] DATABASE_URL length: {databaseUrl?.Length ?? 0}");
+var defaultConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 
-if (!string.IsNullOrEmpty(databaseUrl))
+if (string.IsNullOrWhiteSpace(databaseUrl) &&
+    DatabaseConfiguration.LooksLikePostgreSqlConnectionString(defaultConnection))
 {
-    // Конвертируем PostgreSQL URI в Npgsql connection string
-    if (databaseUrl.StartsWith("postgres://") || databaseUrl.StartsWith("postgresql://"))
+    databaseUrl = defaultConnection;
+    Console.WriteLine("[Startup] PostgreSQL: using ConnectionStrings:DefaultConnection (типично для Amvera / override в панели).");
+}
+
+Console.WriteLine($"[Startup] PostgreSQL candidate configured: {!string.IsNullOrWhiteSpace(databaseUrl)} (length {databaseUrl?.Length ?? 0})");
+
+if (!string.IsNullOrWhiteSpace(databaseUrl) &&
+    DatabaseConfiguration.LooksLikePostgreSqlConnectionString(databaseUrl))
+{
+    var normalized = DatabaseConfiguration.NormalizePostgreSqlConnectionString(databaseUrl);
+    if (string.IsNullOrWhiteSpace(normalized))
     {
-        try
-        {
-            var uri = new Uri(databaseUrl);
-            var connectionString = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={uri.UserInfo.Split(':')[0]};Password={uri.UserInfo.Split(':')[1]};SSL Mode=Prefer;Trust Server Certificate=true";
-            Console.WriteLine($"[Startup] Converted connection string: Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={uri.UserInfo.Split(':')[0]};Password=***");
-            databaseUrl = connectionString;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"[Startup] Error converting DATABASE_URL: {ex.Message}");
-        }
+        throw new InvalidOperationException("Некорректная строка подключения PostgreSQL (URI или Npgsql).");
     }
 
-    Console.WriteLine("Using PostgreSQL database");
+    Console.WriteLine("[Startup] Using PostgreSQL (Npgsql).");
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql(databaseUrl));
+        options.UseNpgsql(normalized));
 }
 else
 {
-    Console.WriteLine("Using SQLite database");
-    var sqliteConnection = builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? "Data Source=apocalypse_launcher.db";
+    Console.WriteLine("[Startup] Using SQLite database.");
+    var sqliteConnection = !string.IsNullOrWhiteSpace(defaultConnection) &&
+                           DatabaseConfiguration.IsSqliteConnectionString(defaultConnection)
+        ? defaultConnection
+        : "Data Source=apocalypse_launcher.db";
     builder.Services.AddDbContext<AppDbContext>(options =>
         options.UseSqlite(sqliteConnection));
 }
@@ -259,9 +260,15 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
     Console.WriteLine("Database initialized successfully");
 
-    // Добавляем колонку FileData если её нет (миграция схемы)
+    // Добавляем колонку FileData если её нет (миграция схемы) — только PostgreSQL (PL/pgSQL).
     try
     {
+        if (!string.Equals(db.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[Startup] Skipping PostgreSQL-only schema patches (provider: {db.Database.ProviderName})");
+        }
+        else
+        {
         // Проверяем и добавляем FileData в PlayerSkins
         db.Database.ExecuteSqlRaw(@"
             DO $$
@@ -308,6 +315,7 @@ using (var scope = app.Services.CreateScope())
         ");
 
         Console.WriteLine("Schema migration completed successfully");
+        }
     }
     catch (Exception ex)
     {

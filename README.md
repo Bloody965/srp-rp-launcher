@@ -108,11 +108,28 @@ dotnet publish -c Release -r win-x64 --self-contained
 ```bash
 export Jwt__SecretKey="ваш_секретный_ключ"
 export ConnectionStrings__DATABASE_URL="postgresql://..."
+# или полная строка Npgsql (удобно для Amvera и др.):
+# export ConnectionStrings__DefaultConnection="Host=...;Port=5432;Database=...;Username=...;Password=...;SSL Mode=Prefer;Trust Server Certificate=true"
 export MinecraftServer__Address="ваш_ip"
 export MinecraftServer__Port="25565"
 ```
 
 ## 🌐 Деплой на production
+
+### Amvera.ru и управляемый PostgreSQL
+
+Если в панели Amvera задан только **SQLite** из `appsettings` (`Data Source=...`), база живёт в контейнере и при пересборке/смене тома **данные могут пропадать** — тогда «ломаются» аккаунты, UUID и скины в Yggdrasil.
+
+1. Создайте в Amvera кластер **PostgreSQL** (тариф не ниже «Начальный», как рекомендует Amvera).
+2. В **проекте API** добавьте переменную окружения **`ConnectionStrings__DefaultConnection`** со строкой подключения **Npgsql**, например:
+
+`Host=amvera-<username>-cnpg-<project_name>-rw;Port=5432;Database=<имя_бд>;Username=<пользователь>;Password=<пароль>;SSL Mode=Prefer;Trust Server Certificate=true`
+
+Хост **`-rw`** (чтение/запись) и имя БД смотрите в разделе «Инфо» у кластера PostgreSQL в панели Amvera. Имя `postgres` и пользователь `postgres` зарезервированы — используйте свои имя БД и пользователя, которые вы задали при создании кластера.
+
+3. Альтернатива: **`DATABASE_URL`** или **`ConnectionStrings__DATABASE_URL`** в виде `postgresql://user:pass@host:5432/dbname` — тоже поддерживается.
+
+После первого старта с PostgreSQL схема создаётся через `EnsureCreated()`; при обновлении API применяются точечные SQL-правки только для PostgreSQL.
 
 ### Railway.app / Render.com
 
@@ -120,7 +137,7 @@ export MinecraftServer__Port="25565"
 2. Подключите к Railway/Render
 3. Настройте переменные окружения:
    - `Jwt__SecretKey`
-   - `ConnectionStrings__DATABASE_URL` (для PostgreSQL)
+   - `ConnectionStrings__DATABASE_URL` или `DATABASE_URL` (PostgreSQL URI), либо `ConnectionStrings__DefaultConnection` (строка Npgsql с `Host=`)
    - `MinecraftServer__Address`
    - `MinecraftServer__Port`
 
